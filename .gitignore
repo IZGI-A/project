@@ -11,3 +11,4 @@ staticfiles/
 *.egg-info/
 .pytest_cache/
 .coverage
+CLAUDE.md
