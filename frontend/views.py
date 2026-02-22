@@ -11,6 +11,7 @@ from django.views import View
 
 from adapter.models import Tenant, SyncLog, SyncConfiguration, ValidationError
 from adapter.clickhouse_manager import get_clickhouse_client
+from adapter.metrics import data_upload_bytes_total
 from adapter.profiling.engine import ProfilingEngine
 from adapter.sync.engine import SyncEngine
 from config.db_router import set_current_tenant_schema, clear_current_tenant_schema
@@ -196,6 +197,7 @@ class UploadView(View):
             records.append(dict(row))
 
         storage.store_data(ctx['tenant_id'], loan_type, file_type, records)
+        data_upload_bytes_total.labels(tenant=ctx['tenant_id']).inc(csv_file.size)
 
         return render(request, 'upload.html', {
             **ctx,

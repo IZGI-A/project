@@ -13,6 +13,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from adapter.clickhouse_manager import get_clickhouse_client
+from adapter.metrics import clickhouse_rows_inserted_total
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class StorageManager:
 
     def __init__(self, ch_database: str):
         self.ch_database = ch_database
+        self._tenant_id = ch_database.replace('_dw', '').upper()
 
     def _get_client(self):
         return get_clickhouse_client(database=self.ch_database)
@@ -56,6 +58,9 @@ class StorageManager:
             # 4. Clean staging
             client.command("TRUNCATE TABLE staging_credit")
 
+            clickhouse_rows_inserted_total.labels(
+                tenant=self._tenant_id, table='fact_credit',
+            ).inc(len(rows))
             logger.info(
                 "Stored %d credit records for %s in %s",
                 len(rows), loan_type, self.ch_database,
@@ -92,6 +97,9 @@ class StorageManager:
 
             client.command("TRUNCATE TABLE staging_payment")
 
+            clickhouse_rows_inserted_total.labels(
+                tenant=self._tenant_id, table='fact_payment',
+            ).inc(len(rows))
             logger.info(
                 "Stored %d payment records for %s in %s",
                 len(rows), loan_type, self.ch_database,

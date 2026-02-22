@@ -1,0 +1,109 @@
+groups:
+  - name: application_alerts
+    rules:
+      # High HTTP 5xx error rate (>5% over 5 minutes)
+      - alert: HighHttpErrorRate
+        expr: |
+          (
+            sum(rate(django_http_responses_total_by_status_total{status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(django_http_responses_total_by_status_total[5m])), 1e-10)
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HTTP 5xx error rate is above 5%"
+          description: "{{ $value | humanizePercentage }} of requests are returning 5xx errors."
+
+      # Slow response time (P95 > 2s)
+      - alert: HighResponseLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(django_http_requests_latency_seconds_by_view_method_bucket[5m])) by (le)
+          ) > 2.0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P95 response latency exceeds 2 seconds"
+          description: "P95 latency is {{ $value }}s"
+
+      # Django target is down
+      - alert: DjangoTargetDown
+        expr: up{job="django"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Django application is down"
+          description: "The Django web service is not responding to Prometheus scrapes."
+
+      # Sync failure rate > 30%
+      - alert: HighSyncErrorRate
+        expr: |
+          (
+            sum(rate(sync_operations_total{status="FAILED"}[15m]))
+            /
+            clamp_min(sum(rate(sync_operations_total[15m])), 1e-10)
+          ) > 0.3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sync operation failure rate above 30%"
+          description: "{{ $value | humanizePercentage }} of sync operations are failing."
+
+  - name: infrastructure_alerts
+    rules:
+      # PostgreSQL connection usage > 85%
+      - alert: PostgresConnectionPoolHigh
+        expr: |
+          sum(pg_stat_activity_count) / pg_settings_max_connections > 0.85
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL connection usage above 85%"
+          description: "{{ $value | humanizePercentage }} of max connections in use."
+
+      # Redis memory usage > 80%
+      - alert: RedisHighMemory
+        expr: |
+          redis_memory_used_bytes / redis_memory_max_bytes > 0.80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory usage above 80%"
+          description: "Redis is using {{ $value | humanizePercentage }} of max memory."
+
+      # ClickHouse query failures
+      - alert: ClickHouseQueryFailures
+        expr: |
+          increase(ClickHouseErrorMetric_CANNOT_PARSE_INPUT_ASSERTION_FAILED[5m]) > 0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ClickHouse is experiencing query errors"
+
+      # Container high CPU (> 80%)
+      - alert: ContainerHighCPU
+        expr: |
+          sum(rate(container_cpu_usage_seconds_total{id=~"/docker/[a-f0-9]+", service!=""}[5m])) by (service) > 0.80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.service }} CPU usage above 80%"
+
+      # Container high memory (> 85%)
+      - alert: ContainerHighMemory
+        expr: |
+          (container_memory_usage_bytes{id=~"/docker/[a-f0-9]+", service!=""} / container_spec_memory_limit_bytes{id=~"/docker/[a-f0-9]+", service!=""}) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.service }} memory usage above 85%"
