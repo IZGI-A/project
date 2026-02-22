@@ -87,9 +87,11 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - ./infrastructure/clickhouse/users.xml:/etc/clickhouse-server/users.d/users.xml
+      - ./infrastructure/clickhouse/config.xml:/etc/clickhouse-server/config.d/prometheus.xml
     ports:
       - "8123:8123"
       - "9001:9000"
+      - "9363:9363"
     healthcheck:
       test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
       interval: 5s
@@ -99,6 +101,7 @@ services:
   # ========== Redis ==========
   redis:
     image: redis:7-alpine
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
 
@@ -127,15 +130,52 @@ services:
       airflow-webserver:
         condition: service_healthy
 
+  # ========== PostgreSQL Exporter ==========
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@db:5432/financial_shared?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ========== Redis Exporter ==========
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+    ports:
+      - "9121:9121"
+    depends_on:
+      - redis
+
+  # ========== cAdvisor (Container Metrics) ==========
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    command:
+      - --store_container_labels=true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    ports:
+      - "8081:8080"
+    privileged: true
+
   # ========== Prometheus ==========
   prometheus:
     image: prom/prometheus:latest
     volumes:
       - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./infrastructure/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml
     ports:
       - "9090:9090"
     depends_on:
       - web
+      - postgres-exporter
+      - redis-exporter
 
   # ========== Grafana ==========
   grafana:
@@ -143,6 +183,7 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./infrastructure/grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./infrastructure/grafana/dashboards:/etc/grafana/provisioning/dashboards
     ports:
       - "3000:3000"
     environment:

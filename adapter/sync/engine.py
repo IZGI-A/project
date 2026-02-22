@@ -5,10 +5,16 @@ Pipeline: FETCH -> VALIDATE -> NORMALIZE -> STORE -> LOG
 If error_rate > 50%, abort and preserve old data.
 """
 import logging
+import time
 import uuid
 from datetime import timezone, datetime
 
 from adapter.models import SyncLog, SyncConfiguration
+from adapter.metrics import (
+    sync_operations_total,
+    sync_duration_seconds,
+    validation_errors_total,
+)
 from adapter.validators.field_validators import CreditFieldValidator, PaymentFieldValidator
 from adapter.validators.cross_validators import CrossFileValidator
 from adapter.validators.base import BatchValidationResult
@@ -56,6 +62,7 @@ class SyncEngine:
             status='STARTED',
         )
         sync_log.save()
+        start_time = time.time()
 
         try:
             # 1. FETCH
@@ -138,6 +145,19 @@ class SyncEngine:
                 sync_log, credit_result, payment_field_result, cross_result,
             )
 
+            # Record Prometheus metrics
+            sync_operations_total.labels(
+                tenant=self.tenant_id, loan_type=loan_type, status='COMPLETED',
+            ).inc()
+            sync_duration_seconds.labels(
+                tenant=self.tenant_id, loan_type=loan_type,
+            ).observe(time.time() - start_time)
+            all_errors = credit_result.errors + payment_field_result.errors + cross_result.errors
+            for err in all_errors:
+                validation_errors_total.labels(
+                    tenant=self.tenant_id, error_type=err.get('error_type', 'UNKNOWN'),
+                ).inc()
+
             # Update sync configuration
             self._update_sync_config(loan_type, 'COMPLETED')
 
@@ -156,6 +176,12 @@ class SyncEngine:
             sync_log.completed_at = datetime.now(timezone.utc)
             sync_log.save()
             self._update_sync_config(loan_type, 'FAILED')
+            sync_operations_total.labels(
+                tenant=self.tenant_id, loan_type=loan_type, status='FAILED',
+            ).inc()
+            sync_duration_seconds.labels(
+                tenant=self.tenant_id, loan_type=loan_type,
+            ).observe(time.time() - start_time)
             logger.exception("Sync failed for %s/%s: %s", self.tenant_id, loan_type, e)
             return sync_log
 
@@ -206,6 +232,15 @@ class SyncEngine:
 
         self._save_validation_errors(sync_log, credit_result, payment_result, cross_result)
         self._update_sync_config(sync_log.loan_type, 'FAILED')
+
+        sync_operations_total.labels(
+            tenant=self.tenant_id, loan_type=sync_log.loan_type, status='FAILED',
+        ).inc()
+        all_errors = credit_result.errors + payment_result.errors + cross_result.errors
+        for err in all_errors:
+            validation_errors_total.labels(
+                tenant=self.tenant_id, error_type=err.get('error_type', 'UNKNOWN'),
+            ).inc()
 
         logger.warning(
             "Sync aborted for %s/%s: %s", self.tenant_id, sync_log.loan_type, reason,

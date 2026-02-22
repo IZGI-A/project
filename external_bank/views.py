@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from external_bank import storage
+from adapter.metrics import data_upload_bytes_total
 
 
 class CSVUploadView(APIView):
@@ -52,6 +53,7 @@ class CSVUploadView(APIView):
             records.extend(chunk)
 
         storage.store_data(tenant_id, loan_type, file_type, records)
+        data_upload_bytes_total.labels(tenant=tenant_id).inc(csv_file.size)
 
         return Response({
             'status': 'uploaded',
@@ -85,6 +87,7 @@ class DataUpdateView(APIView):
             records.append(dict(row))
 
         storage.store_data(tenant_id, loan_type, file_type, records)
+        data_upload_bytes_total.labels(tenant=tenant_id).inc(csv_file.size)
 
         return Response({
             'status': 'updated',
