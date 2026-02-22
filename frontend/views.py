@@ -3,8 +3,9 @@ import csv
 import io
 import json
 import logging
+import secrets
 
-from django.contrib.auth.hashers import check_password
+from django.contrib.auth.hashers import check_password, make_password
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect
 from django.views import View
@@ -18,6 +19,7 @@ from config.db_router import set_current_tenant_schema, clear_current_tenant_sch
 from core.cache import (
     cache_get_or_set, sync_configs_key, sync_logs_key,
     ch_count_key, ch_schema_key, profile_key, validation_errors_key,
+    invalidate_tenant_auth,
     TTL_SYNC_CONFIG, TTL_SYNC_LOGS, TTL_CH_COUNT, TTL_CH_SCHEMA,
     TTL_PROFILE, TTL_VALIDATION_ERRORS,
 )
@@ -597,4 +599,57 @@ class FailedRecordsDismissView(View):
 
         return render(request, 'partials/failed_records.html', {
             **ctx, 'failed_records': failed_records,
+        })
+
+
+class SettingsView(View):
+    """Tenant settings page with API key regeneration."""
+
+    def get(self, request):
+        ctx = _get_tenant_context(request)
+        if not ctx:
+            return redirect('frontend:login')
+        clear_current_tenant_schema()
+
+        try:
+            tenant = Tenant.objects.get(tenant_id=ctx['tenant_id'])
+        except Tenant.DoesNotExist:
+            return redirect('frontend:login')
+
+        return render(request, 'settings.html', {
+            **ctx,
+            'api_key_prefix': tenant.api_key_prefix,
+        })
+
+    def post(self, request):
+        """HTMX endpoint: regenerate API key."""
+        ctx = _get_tenant_context(request)
+        if not ctx:
+            return HttpResponse(status=401)
+        clear_current_tenant_schema()
+
+        try:
+            tenant = Tenant.objects.get(tenant_id=ctx['tenant_id'])
+        except Tenant.DoesNotExist:
+            return HttpResponse('Tenant not found', status=404)
+
+        old_prefix = tenant.api_key_prefix
+
+        # Generate new key
+        raw_api_key = f"sk_live_{secrets.token_hex(24)}"
+        tenant.api_key_hash = make_password(raw_api_key)
+        tenant.api_key_prefix = raw_api_key[:16]
+        tenant.save(update_fields=['api_key_hash', 'api_key_prefix'])
+
+        # Invalidate old cached auth entry
+        invalidate_tenant_auth(old_prefix)
+
+        logger.info(
+            "API key regenerated for tenant %s (old prefix: %s..., new prefix: %s...)",
+            ctx['tenant_id'], old_prefix[:8], tenant.api_key_prefix[:8],
+        )
+
+        return render(request, 'partials/new_api_key.html', {
+            'new_api_key': raw_api_key,
+            'new_prefix': tenant.api_key_prefix,
         })

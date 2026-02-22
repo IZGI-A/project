@@ -1,0 +1,41 @@
+<div class="alert-glass-success p-3 mb-3">
+    <div class="d-flex align-items-center mb-2">
+        <i class="bi bi-check-circle-fill me-2" style="color: #34d399;"></i>
+        <strong>New API Key Generated</strong>
+    </div>
+
+    <div class="glass-card p-3 mb-2">
+        <div class="d-flex align-items-center justify-content-between">
+            <code id="new-key-value" style="font-size: 0.95rem; word-break: break-all;">{{ new_api_key }}</code>
+            <button class="btn btn-glass btn-sm ms-3" onclick="copyApiKey()" title="Copy to clipboard">
+                <i class="bi bi-clipboard" id="copy-icon"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="alert-glass-danger p-2 mt-2" style="font-size: 0.85rem;">
+        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+        <strong>Save this key now!</strong> It will not be shown again. You will need this key for future logins.
+    </div>
+</div>
+
+<!-- Update the prefix display via OOB swap -->
+<div class="glass-card p-3" id="prefix-display" hx-swap-oob="innerHTML:#prefix-display">
+    <div class="text-secondary small mb-1">API Key Prefix</div>
+    <div class="fw-semibold"><code>{{ new_prefix }}...</code></div>
+</div>
+
+<script>
+function copyApiKey() {
+    const keyText = document.getElementById('new-key-value').textContent;
+    navigator.clipboard.writeText(keyText).then(function() {
+        const icon = document.getElementById('copy-icon');
+        icon.className = 'bi bi-check-lg';
+        icon.style.color = '#34d399';
+        setTimeout(function() {
+            icon.className = 'bi bi-clipboard';
+            icon.style.color = '';
+        }, 2000);
+    });
+}
+</script>

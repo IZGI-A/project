@@ -451,6 +451,9 @@
             </a>
         </nav>
         <div class="py-3 px-2">
+            <a class="nav-link {% if 'settings' in request.path %}active{% endif %}" href="{% url 'frontend:settings' %}">
+                <i class="bi bi-gear"></i> <span>Settings</span>
+            </a>
             <a class="nav-link" href="{% url 'frontend:logout' %}" style="color: #f87171;">
                 <i class="bi bi-box-arrow-left"></i> <span>Logout</span>
             </a>
