@@ -176,7 +176,6 @@ CREATE TABLE fact_credit (
 
     -- Commercial-only Alanlar (RETAIL icin NULL)
     loan_product_type               Nullable(UInt32),               -- Kredi urun tipi
-    loan_status_flag                Nullable(String),               -- Durum bayragi
     customer_region_code            Nullable(String),               -- Bolge kodu
     sector_code                     Nullable(UInt32),               -- Sektor kodu
     internal_credit_rating          Nullable(UInt32),               -- Ic kredi derecesi

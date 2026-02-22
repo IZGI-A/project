@@ -145,9 +145,53 @@ class UploadView(View):
                 **ctx, 'error': 'All fields are required.',
             })
 
-        records = []
         text_wrapper = io.TextIOWrapper(csv_file, encoding='utf-8')
         reader = csv.DictReader(text_wrapper, delimiter=';')
+
+        # Validate CSV headers match the selected loan_type/file_type
+        headers = set(reader.fieldnames or [])
+
+        # Columns unique to each type — used to reject wrong file
+        COMMERCIAL_ONLY = {'loan_product_type', 'sector_code', 'internal_credit_rating',
+                           'default_probability', 'risk_class', 'customer_segment'}
+        RETAIL_ONLY = {'insurance_included', 'customer_district_code',
+                       'customer_province_code'}
+        CREDIT_ONLY = {'customer_id', 'customer_type', 'original_loan_amount',
+                       'outstanding_principal_balance'}
+        PAYMENT_ONLY = {'installment_number', 'installment_amount',
+                        'principal_component', 'installment_status'}
+
+        if file_type == 'credit':
+            required = {'loan_account_number', 'customer_id', 'customer_type',
+                        'loan_status_code', 'original_loan_amount',
+                        'outstanding_principal_balance'}
+            if loan_type == 'COMMERCIAL':
+                required |= {'loan_product_type', 'sector_code'}
+                rejected = RETAIL_ONLY
+            else:
+                rejected = COMMERCIAL_ONLY
+        else:
+            required = {'loan_account_number', 'installment_number',
+                        'installment_amount', 'principal_component'}
+            rejected = CREDIT_ONLY
+
+        missing = required - headers
+        if missing:
+            return render(request, 'upload.html', {
+                **ctx,
+                'error': f'This file does not match {loan_type}/{file_type}. '
+                         f'Missing columns: {", ".join(sorted(missing))}',
+            })
+
+        unexpected = rejected & headers
+        if unexpected:
+            return render(request, 'upload.html', {
+                **ctx,
+                'error': f'This file does not match {loan_type}/{file_type}. '
+                         f'Unexpected columns: {", ".join(sorted(unexpected))}',
+            })
+
+        records = []
         for row in reader:
             records.append(dict(row))
 
@@ -247,7 +291,29 @@ class SyncTriggerView(View):
 
 
 class DataViewPage(View):
-    """Data viewer page."""
+    """Data viewer with client-side sorting and pagination."""
+
+    NUMERIC_TYPE_PREFIXES = (
+        'UInt8', 'UInt16', 'UInt32', 'UInt64',
+        'Int8', 'Int16', 'Int32', 'Int64',
+        'Float32', 'Float64', 'Decimal',
+    )
+
+    @staticmethod
+    def _serialize_value(val):
+        """Convert ClickHouse values to JSON-safe types."""
+        if val is None:
+            return None
+        from decimal import Decimal as D
+        from datetime import date, datetime
+        from uuid import UUID
+        if isinstance(val, D):
+            return float(val)
+        if isinstance(val, (datetime, date)):
+            return str(val)
+        if isinstance(val, UUID):
+            return str(val)
+        return val
 
     def get(self, request):
         ctx = _get_tenant_context(request)
@@ -257,48 +323,69 @@ class DataViewPage(View):
 
         loan_type = request.GET.get('loan_type', 'RETAIL')
         data_type = request.GET.get('data_type', 'credit')
-        page = int(request.GET.get('page', 1))
-        page_size = 50
-        offset = (page - 1) * page_size
+        selected_cols_param = request.GET.get('columns', '')
 
-        data = []
         columns = []
-        total_count = 0
+        all_columns = []
+        numeric_columns = []
+        data_json = '[]'
 
         try:
             client = get_clickhouse_client(database=ctx['ch_database'])
             table = f'fact_{data_type}'
 
-            count_result = client.query(
-                f"SELECT count() FROM {table} WHERE loan_type = {{lt:String}}",
+            # Fetch column metadata
+            col_result = client.query(
+                "SELECT name, type FROM system.columns "
+                "WHERE database = currentDatabase() AND table = {t:String} "
+                "ORDER BY position",
+                parameters={'t': table},
+            )
+            all_columns = [r[0] for r in col_result.result_rows]
+            numeric_columns = [
+                name for name, ctype in col_result.result_rows
+                if any(ctype.replace('Nullable(', '').startswith(nt)
+                       for nt in self.NUMERIC_TYPE_PREFIXES)
+            ]
+
+            # Column selection
+            if selected_cols_param:
+                chosen = [c for c in selected_cols_param.split(',')
+                          if c in all_columns]
+                if not chosen:
+                    chosen = list(all_columns)
+            else:
+                chosen = list(all_columns)
+
+            # Fetch ALL rows (no LIMIT/OFFSET, no ORDER BY — sorting is client-side)
+            select_clause = ', '.join(chosen)
+            result = client.query(
+                f"SELECT {select_clause} FROM {table} "
+                f"WHERE loan_type = {{lt:String}}",
                 parameters={'lt': loan_type},
             )
-            total_count = count_result.result_rows[0][0]
+            columns = list(result.column_names)
 
-            result = client.query(
-                f"SELECT * FROM {table} "
-                f"WHERE loan_type = {{lt:String}} "
-                f"ORDER BY loan_account_number "
-                f"LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}",
-                parameters={'lt': loan_type, 'limit': page_size, 'offset': offset},
-            )
-            columns = result.column_names
-            data = result.result_rows
+            # Serialize to JSON
+            rows = [
+                [self._serialize_value(cell) for cell in row]
+                for row in result.result_rows
+            ]
+            data_json = json.dumps(rows, ensure_ascii=False)
         except Exception as e:
             logger.warning("Data view error: %s", e)
-
-        total_pages = max(1, (total_count + page_size - 1) // page_size)
 
         context = {
             **ctx,
             'loan_type': loan_type,
             'data_type': data_type,
             'columns': columns,
-            'data': data,
-            'total_count': total_count,
-            'page': page,
-            'total_pages': total_pages,
-            'page_range': range(max(1, page - 2), min(total_pages + 1, page + 3)),
+            'columns_json': json.dumps(columns),
+            'all_columns': all_columns,
+            'selected_columns': selected_cols_param,
+            'numeric_columns': numeric_columns,
+            'numeric_columns_json': json.dumps(numeric_columns),
+            'data_json': data_json,
         }
         return render(request, 'data_view.html', context)
 

@@ -1,48 +1,48 @@
 {% if failed_records %}
-<table class="table table-sm mb-0">
+<table class="table table-glass table-hover">
     <thead>
         <tr><th>Loan Type</th><th>File Type</th><th>Failed Rows</th><th>Actions</th></tr>
     </thead>
     <tbody>
     {% for fr in failed_records %}
     <tr>
-        <td><span class="badge bg-dark">{{ fr.loan_type }}</span></td>
-        <td>{{ fr.file_type }}</td>
-        <td><span class="badge bg-danger">{{ fr.count }}</span></td>
+        <td><span class="badge badge-glass">{{ fr.loan_type }}</span></td>
+        <td class="text-secondary">{{ fr.file_type }}</td>
+        <td><span class="badge badge-danger-glass">{{ fr.count }}</span></td>
         <td>
             <div class="d-flex gap-1">
-                <button class="btn btn-sm btn-outline-secondary"
+                <button class="btn btn-glass btn-sm"
                         hx-get="{% url 'frontend:failed-preview' %}?loan_type={{ fr.loan_type }}&file_type={{ fr.file_type }}"
-                        hx-target="#preview-{{ fr.loan_type }}-{{ fr.file_type }}"
+                        hx-target="#preview-modal-body"
                         hx-swap="innerHTML"
-                        title="Preview failed records">
+                        data-bs-toggle="modal"
+                        data-bs-target="#previewModal"
+                        title="Preview failed records"
+                        style="font-size: 0.78rem;">
                     <i class="bi bi-eye"></i> Preview
                 </button>
                 <a href="{% url 'frontend:failed-download' %}?loan_type={{ fr.loan_type }}&file_type={{ fr.file_type }}"
-                   class="btn btn-sm btn-outline-primary" title="Download CSV to fix and re-upload">
+                   class="btn btn-glass btn-sm" title="Download CSV"
+                   style="font-size: 0.78rem; color: var(--accent-cyan);">
                     <i class="bi bi-download"></i> Download
                 </a>
-                <button class="btn btn-sm btn-outline-danger"
+                <button class="btn btn-glass btn-sm"
                         hx-post="{% url 'frontend:failed-dismiss' %}"
                         hx-vals='{"loan_type": "{{ fr.loan_type }}", "file_type": "{{ fr.file_type }}"}'
                         hx-target="#failed-records"
                         hx-swap="innerHTML"
                         hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
                         hx-confirm="{{ fr.count }} failed record(s) will be permanently deleted. Continue?"
-                        title="Permanently delete failed records">
+                        title="Permanently delete failed records"
+                        style="font-size: 0.78rem; color: var(--accent-red);">
                     <i class="bi bi-trash"></i> Dismiss
                 </button>
             </div>
-        </td>
-    </tr>
-    <tr>
-        <td colspan="4" class="p-0">
-            <div id="preview-{{ fr.loan_type }}-{{ fr.file_type }}"></div>
         </td>
     </tr>
     {% endfor %}
     </tbody>
 </table>
 {% else %}
-<p class="text-muted text-center mb-0 py-3">No failed records</p>
+<p class="text-secondary text-center mb-0 py-3">No failed records</p>
 {% endif %}

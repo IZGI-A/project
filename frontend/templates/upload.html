@@ -2,29 +2,27 @@
 {% block title %}Upload CSV - {{ tenant_name }}{% endblock %}
 
 {% block content %}
-<h4 class="mb-4">Upload CSV to External Bank</h4>
+<h4 class="page-title mb-4 text-glow">Upload CSV</h4>
 
 {% if success %}
-<div class="alert alert-success alert-dismissible fade show">
-    <i class="bi bi-check-circle"></i> {{ success }}
-    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+<div class="alert-glass-success p-3 mb-3 d-flex align-items-center gap-2" style="max-width: 600px;">
+    <i class="bi bi-check-circle" style="font-size: 1.1rem;"></i> {{ success }}
 </div>
 {% endif %}
 
 {% if error %}
-<div class="alert alert-danger alert-dismissible fade show">
-    <i class="bi bi-exclamation-circle"></i> {{ error }}
-    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+<div class="alert-glass-danger p-3 mb-3 d-flex align-items-center gap-2" style="max-width: 600px;">
+    <i class="bi bi-exclamation-circle" style="font-size: 1.1rem;"></i> {{ error }}
 </div>
 {% endif %}
 
-<div class="card" style="max-width: 600px;">
-    <div class="card-body">
+<div class="glass-card" style="max-width: 600px;">
+    <div class="card-body p-4">
         <form method="post" enctype="multipart/form-data">
             {% csrf_token %}
             <div class="mb-3">
                 <label class="form-label">Loan Type</label>
-                <select name="loan_type" class="form-select" required>
+                <select name="loan_type" class="form-select" required style="border-radius: 10px;">
                     <option value="">Select...</option>
                     <option value="RETAIL">Retail</option>
                     <option value="COMMERCIAL">Commercial</option>
@@ -32,7 +30,7 @@
             </div>
             <div class="mb-3">
                 <label class="form-label">File Type</label>
-                <select name="file_type" class="form-select" required>
+                <select name="file_type" class="form-select" required style="border-radius: 10px;">
                     <option value="">Select...</option>
                     <option value="credit">Credit</option>
                     <option value="payment_plan">Payment Plan</option>
@@ -40,13 +38,57 @@
             </div>
             <div class="mb-3">
                 <label class="form-label">CSV File</label>
-                <input type="file" name="file" class="form-control" accept=".csv" required>
-                <div class="form-text">Semicolon (;) delimited CSV file</div>
+                <div class="glass-card p-4 text-center" id="drop-zone"
+                     style="border: 2px dashed rgba(255,255,255,0.15); border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
+                    <input type="file" name="file" class="d-none" id="file-input" accept=".csv" required>
+                    <i class="bi bi-cloud-arrow-up" style="font-size: 2rem; color: var(--accent-purple);"></i>
+                    <p class="mb-0 mt-2 text-secondary" style="font-size: 0.88rem;" id="file-label">
+                        Drag & drop or <span style="color: var(--accent-cyan); cursor: pointer;">browse</span>
+                    </p>
+                    <small class="text-secondary">Semicolon (;) delimited CSV file</small>
+                </div>
             </div>
-            <button type="submit" class="btn btn-primary">
+            <button type="submit" class="btn btn-accent w-100" style="padding: 0.65rem; border-radius: 10px;">
                 <i class="bi bi-cloud-upload"></i> Upload
             </button>
         </form>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const fileLabel = document.getElementById('file-label');
+
+dropZone.addEventListener('click', () => fileInput.click());
+
+dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.style.borderColor = '#7c3aed';
+    dropZone.style.background = 'rgba(124,58,237,0.08)';
+});
+
+dropZone.addEventListener('dragleave', () => {
+    dropZone.style.borderColor = 'rgba(255,255,255,0.15)';
+    dropZone.style.background = '';
+});
+
+dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.style.borderColor = 'rgba(255,255,255,0.15)';
+    dropZone.style.background = '';
+    if (e.dataTransfer.files.length) {
+        fileInput.files = e.dataTransfer.files;
+        fileLabel.innerHTML = '<i class="bi bi-file-earmark-check" style="color: #10b981;"></i> ' + e.dataTransfer.files[0].name;
+    }
+});
+
+fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) {
+        fileLabel.innerHTML = '<i class="bi bi-file-earmark-check" style="color: #10b981;"></i> ' + fileInput.files[0].name;
+    }
+});
+</script>
 {% endblock %}

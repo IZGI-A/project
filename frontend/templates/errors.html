@@ -2,24 +2,29 @@
 {% block title %}Validation Errors - {{ tenant_name }}{% endblock %}
 
 {% block content %}
-<h4 class="mb-4">Validation Errors</h4>
+<h4 class="page-title mb-4 text-glow">Validation Errors</h4>
 
 <div class="row g-3">
     <!-- Log selector -->
     <div class="col-md-4">
-        <div class="card">
-            <div class="card-header"><h6 class="mb-0">Sync Logs with Errors</h6></div>
-            <div class="list-group list-group-flush">
+        <div class="glass-card">
+            <div class="card-header px-3 py-2">
+                <h6 class="mb-0" style="font-weight: 600;"><i class="bi bi-list-ul me-1" style="color: var(--accent-amber);"></i> Sync Logs with Errors</h6>
+            </div>
+            <div class="list-group list-group-glass list-group-flush">
                 {% for log in logs %}
                 <a href="?sync_log_id={{ log.id }}"
                    class="list-group-item list-group-item-action {% if sync_log and sync_log.id == log.id %}active{% endif %}">
-                    <div class="d-flex justify-content-between">
-                        <small>{{ log.loan_type }} - {{ log.started_at|date:"Y-m-d H:i" }}</small>
-                        <span class="badge bg-danger">{{ log.error_count }}</span>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <small class="d-block" style="font-weight: 500;">{{ log.loan_type }}</small>
+                            <small class="text-secondary" style="font-size: 0.75rem;">{{ log.started_at|date:"Y-m-d H:i" }}</small>
+                        </div>
+                        <span class="badge badge-danger-glass">{{ log.error_count }}</span>
                     </div>
                 </a>
                 {% empty %}
-                <div class="list-group-item text-muted text-center">No errors found</div>
+                <div class="list-group-item text-secondary text-center py-3">No errors found</div>
                 {% endfor %}
             </div>
         </div>
@@ -28,34 +33,39 @@
     <!-- Error details -->
     <div class="col-md-8">
         {% if sync_log %}
-        <div class="card mb-3">
-            <div class="card-header">
-                <h6 class="mb-0">
-                    Sync {{ sync_log.id|truncatechars:12 }} - {{ sync_log.loan_type }}
-                    <span class="badge bg-danger ms-2">{{ sync_log.error_count }} errors</span>
-                </h6>
+        <div class="glass-card mb-3">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h6 class="mb-0" style="font-weight: 600;">Sync {{ sync_log.id|truncatechars:12 }}</h6>
+                    <span class="badge badge-glass">{{ sync_log.loan_type }}</span>
+                    <span class="badge badge-danger-glass">{{ sync_log.error_count }} errors</span>
+                </div>
             </div>
         </div>
 
-        <div class="card">
+        <div class="glass-card">
             <div class="card-body p-0">
                 <div class="table-responsive">
-                    <table class="table table-sm table-striped mb-0">
-                        <thead class="table-dark">
+                    <table class="table table-glass table-hover">
+                        <thead>
                             <tr><th>Row</th><th>File</th><th>Field</th><th>Type</th><th>Message</th><th>Value</th></tr>
                         </thead>
                         <tbody>
                         {% for err in errors %}
                         <tr>
                             <td>{{ err.row_number }}</td>
-                            <td><span class="badge bg-secondary">{{ err.file_type }}</span></td>
+                            <td><span class="badge badge-secondary-glass">{{ err.file_type }}</span></td>
                             <td><code>{{ err.field_name }}</code></td>
-                            <td><span class="badge {% if err.error_type == 'REQUIRED' %}bg-danger{% elif err.error_type == 'CROSS_REFERENCE' %}bg-warning text-dark{% else %}bg-info{% endif %}">{{ err.error_type }}</span></td>
-                            <td><small>{{ err.error_message }}</small></td>
+                            <td>
+                                <span class="badge {% if err.error_type == 'REQUIRED' %}badge-danger-glass{% elif err.error_type == 'CROSS_REFERENCE' %}badge-warning-glass{% else %}badge-info-glass{% endif %}">
+                                    {{ err.error_type }}
+                                </span>
+                            </td>
+                            <td><small class="text-secondary">{{ err.error_message }}</small></td>
                             <td><code>{{ err.raw_value|default:"-" }}</code></td>
                         </tr>
                         {% empty %}
-                        <tr><td colspan="6" class="text-muted text-center">No errors</td></tr>
+                        <tr><td colspan="6" class="text-secondary text-center py-3">No errors</td></tr>
                         {% endfor %}
                         </tbody>
                     </table>
@@ -63,8 +73,9 @@
             </div>
         </div>
         {% else %}
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle"></i> Select a sync log to view validation errors.
+        <div class="alert-glass-info p-4 text-center">
+            <i class="bi bi-info-circle" style="font-size: 1.5rem;"></i>
+            <p class="mb-0 mt-2">Select a sync log to view validation errors.</p>
         </div>
         {% endif %}
     </div>

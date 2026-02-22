@@ -93,7 +93,6 @@ class TestCreditFieldValidator:
             default_probability='0.02',
             risk_class='1',
             customer_segment='2',
-            loan_status_flag='A',
         )
         result = self.validator.validate_row(row, 1, 'COMMERCIAL')
         assert result.is_valid
@@ -240,7 +239,7 @@ class TestCategoryNormalizer:
             result = self.normalizer.normalize_payment(record)
             assert result['installment_status'] == expected
 
-    def test_commercial_status_flag(self):
+    def test_commercial_status_flag_removed(self):
         record = {'customer_type': 'T', 'loan_status_code': 'A', 'loan_status_flag': 'A'}
         result = self.normalizer.normalize_credit(record, 'COMMERCIAL')
-        assert result['loan_status_flag'] == 'ACTIVE'
+        assert 'loan_status_flag' not in result

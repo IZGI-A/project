@@ -1,4 +1,4 @@
-<table class="table table-sm mb-0">
+<table class="table table-glass table-hover">
     <thead>
         <tr>
             <th>ID</th><th>Type</th><th>Status</th>
@@ -9,10 +9,10 @@
     <tbody>
     {% for log in logs %}
     <tr>
-        <td><small>{{ log.id|truncatechars:8 }}</small></td>
-        <td>{{ log.loan_type }}</td>
+        <td><small class="text-secondary">{{ log.id|truncatechars:8 }}</small></td>
+        <td><span class="badge badge-glass">{{ log.loan_type }}</span></td>
         <td>
-            <span class="badge {% if log.status == 'COMPLETED' %}bg-success{% elif log.status == 'FAILED' %}bg-danger{% elif log.status == 'STARTED' %}bg-info{% else %}bg-secondary{% endif %}">
+            <span class="badge {% if log.status == 'COMPLETED' %}badge-success-glass{% elif log.status == 'FAILED' %}badge-danger-glass{% elif log.status == 'STARTED' %}badge-info-glass{% else %}badge-secondary-glass{% endif %}">
                 {{ log.status }}
             </span>
         </td>
@@ -20,15 +20,15 @@
         <td>{{ log.valid_payment_rows }}/{{ log.total_payment_rows }}</td>
         <td>
             {% if log.error_count > 0 %}
-                <a href="{% url 'frontend:errors' %}?sync_log_id={{ log.id }}" class="text-danger">{{ log.error_count }}</a>
+                <a href="{% url 'frontend:errors' %}?sync_log_id={{ log.id }}" style="color: var(--accent-red); font-weight: 600;">{{ log.error_count }}</a>
             {% else %}
-                0
+                <span class="text-secondary">0</span>
             {% endif %}
         </td>
-        <td><small>{{ log.started_at|date:"Y-m-d H:i" }}</small></td>
+        <td><small class="text-secondary">{{ log.started_at|date:"Y-m-d H:i" }}</small></td>
     </tr>
     {% empty %}
-    <tr><td colspan="7" class="text-muted text-center">No sync logs</td></tr>
+    <tr><td colspan="7" class="text-secondary text-center py-3">No sync logs</td></tr>
     {% endfor %}
     </tbody>
 </table>

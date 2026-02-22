@@ -2,80 +2,386 @@
 {% block title %}Data View - {{ tenant_name }}{% endblock %}
 
 {% block content %}
-<h4 class="mb-4">Data Warehouse Viewer</h4>
+<h4 class="page-title mb-4 text-glow">Data Warehouse Viewer</h4>
 
 <!-- Filters -->
-<div class="card mb-3">
-    <div class="card-body py-2">
-        <form method="get" class="d-flex gap-3 align-items-center">
+<div class="mb-3" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; position: relative; z-index: 10;">
+    <div class="card-body py-2 px-3">
+        <form id="filterForm" method="get" class="d-flex gap-3 align-items-center flex-wrap">
+            <input type="hidden" name="columns" id="hiddenColumns" value="{{ selected_columns }}">
             <div>
-                <select name="loan_type" class="form-select form-select-sm">
+                <select name="loan_type" class="form-select form-select-sm" style="border-radius: 8px; min-width: 130px;">
                     <option value="RETAIL" {% if loan_type == "RETAIL" %}selected{% endif %}>Retail</option>
                     <option value="COMMERCIAL" {% if loan_type == "COMMERCIAL" %}selected{% endif %}>Commercial</option>
                 </select>
             </div>
             <div>
-                <select name="data_type" class="form-select form-select-sm">
+                <select name="data_type" class="form-select form-select-sm" style="border-radius: 8px; min-width: 130px;">
                     <option value="credit" {% if data_type == "credit" %}selected{% endif %}>Credits</option>
                     <option value="payment" {% if data_type == "payment" %}selected{% endif %}>Payments</option>
                 </select>
             </div>
-            <button type="submit" class="btn btn-sm btn-primary">
+            <button type="submit" class="btn btn-accent btn-sm" style="border-radius: 8px;">
                 <i class="bi bi-search"></i> Filter
             </button>
-            <span class="text-muted ms-auto">Total: {{ total_count }} rows</span>
+
+            <!-- Sort info badge -->
+            <span id="sortBadge" class="d-none" style="font-size: 0.8rem; color: var(--accent-cyan); cursor: pointer;"
+                  title="Click to clear sorting">
+            </span>
+
+            <span class="ms-auto" style="color: var(--text-secondary); font-size: 0.85rem;">
+                <i class="bi bi-database"></i> Total: <strong id="totalCount" style="color: var(--accent-cyan);">0</strong> rows
+            </span>
+
+            <!-- Column Selector (custom panel, no Bootstrap dropdown) -->
+            {% if all_columns %}
+            <div style="position: relative;">
+                <button class="btn btn-glass btn-sm" type="button" id="columnSelectorBtn" style="border-radius: 8px;">
+                    <i class="bi bi-layout-three-columns"></i>
+                    Columns <span class="badge badge-glass ms-1" id="colCountBadge">{{ columns|length }}</span>
+                </button>
+                <div id="colPanel" style="display:none; position:absolute; right:0; top:100%; margin-top:4px;
+                            background: rgba(30,27,75,0.97); border: 1px solid rgba(255,255,255,0.12);
+                            border-radius: 12px; min-width: 260px; max-height: 420px;
+                            z-index: 1050; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+                            padding: 8px; overflow: hidden; display: none;">
+                    <input type="text" id="colSearch" class="form-control form-control-sm mb-2"
+                           placeholder="Search columns..." autocomplete="off"
+                           style="border-radius: 6px; font-size: 0.8rem;">
+                    <div class="d-flex gap-1 mb-2">
+                        <button type="button" class="btn btn-glass btn-sm flex-fill" id="selectAllBtn"
+                                style="font-size: 0.75rem; border-radius: 6px;">
+                            Select All
+                        </button>
+                        <button type="button" class="btn btn-glass btn-sm flex-fill" id="deselectAllBtn"
+                                style="font-size: 0.75rem; border-radius: 6px;">
+                            Deselect All
+                        </button>
+                        <button type="button" class="btn btn-accent btn-sm flex-fill" id="applyColumnsBtn"
+                                style="font-size: 0.75rem; border-radius: 6px;">
+                            <i class="bi bi-check-lg"></i> Apply
+                        </button>
+                    </div>
+                    <div id="colListWrap" style="max-height: 320px; overflow-y: auto;">
+                        {% for col in all_columns %}
+                        <label class="col-item d-flex align-items-center gap-2 px-2 py-1"
+                               data-colname="{{ col }}"
+                               style="font-size: 0.82rem; color: #e2e8f0; cursor: pointer; border-radius: 6px;">
+                            <input type="checkbox" class="form-check-input col-checkbox"
+                                   value="{{ col }}"
+                                   {% if col in columns %}checked{% endif %}
+                                   style="margin: 0;">
+                            <span>{{ col }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
         </form>
     </div>
 </div>
 
 <!-- Data Table -->
-<div class="card">
+<div id="dataTable" class="glass-card">
     <div class="card-body p-0">
         <div class="table-responsive">
-            <table class="table table-sm table-striped table-hover mb-0">
-                <thead class="table-dark">
-                    <tr>
-                    {% for col in columns %}
-                        <th><small>{{ col }}</small></th>
-                    {% endfor %}
-                    </tr>
-                </thead>
-                <tbody>
-                {% for row in data %}
-                    <tr>
-                    {% for cell in row %}
-                        <td><small>{{ cell|default:"-" }}</small></td>
-                    {% endfor %}
-                    </tr>
-                {% empty %}
-                    <tr><td colspan="{{ columns|length|default:1 }}" class="text-muted text-center">No data</td></tr>
-                {% endfor %}
-                </tbody>
+            <table class="table table-glass table-hover" id="mainTable">
+                <thead><tr id="tableHead"></tr></thead>
+                <tbody id="tableBody"></tbody>
             </table>
         </div>
     </div>
 </div>
 
 <!-- Pagination -->
-{% if total_pages > 1 %}
-<nav class="mt-3">
-    <ul class="pagination pagination-sm justify-content-center">
-        {% if page > 1 %}
-        <li class="page-item">
-            <a class="page-link" href="?loan_type={{ loan_type }}&data_type={{ data_type }}&page={{ page|add:"-1" }}">Prev</a>
-        </li>
-        {% endif %}
-        {% for p in page_range %}
-        <li class="page-item {% if p == page %}active{% endif %}">
-            <a class="page-link" href="?loan_type={{ loan_type }}&data_type={{ data_type }}&page={{ p }}">{{ p }}</a>
-        </li>
-        {% endfor %}
-        {% if page < total_pages %}
-        <li class="page-item">
-            <a class="page-link" href="?loan_type={{ loan_type }}&data_type={{ data_type }}&page={{ page|add:"1" }}">Next</a>
-        </li>
-        {% endif %}
-    </ul>
+<nav class="mt-3" id="paginationNav" style="display: none;">
+    <div class="d-flex justify-content-center align-items-center gap-3">
+        <ul class="pagination pagination-sm mb-0" id="paginationList"></ul>
+        <select id="pageSizeSelect" class="form-select form-select-sm" style="width: auto; border-radius: 8px; font-size: 0.8rem;">
+            <option value="50">50 / page</option>
+            <option value="100">100 / page</option>
+            <option value="200">200 / page</option>
+            <option value="500">500 / page</option>
+        </select>
+    </div>
 </nav>
-{% endif %}
+
+<script>
+(function() {
+    var COLUMNS = {{ columns_json|safe }};
+    var ALL_DATA = {{ data_json|safe }};
+    var NUMERIC = new Set({{ numeric_columns_json|safe }});
+
+    var sortKeys = [];   // [{col: index, dir: 1|-1}, ...]
+    var currentPage = 1;
+    var pageSize = 50;
+    var sortedData = ALL_DATA.slice();
+
+    var thead = document.getElementById('tableHead');
+    var tbody = document.getElementById('tableBody');
+    var totalEl = document.getElementById('totalCount');
+    var sortBadge = document.getElementById('sortBadge');
+    var pagNav = document.getElementById('paginationNav');
+    var pagList = document.getElementById('paginationList');
+    var pagSizeSel = document.getElementById('pageSizeSelect');
+
+    totalEl.textContent = ALL_DATA.length;
+
+    // ── Build header ──
+    function renderHead() {
+        thead.innerHTML = '';
+        COLUMNS.forEach(function(col, idx) {
+            var th = document.createElement('th');
+            th.className = 'text-nowrap';
+            var isNum = NUMERIC.has(col);
+            th.style.cursor = 'pointer';
+            th.style.userSelect = 'none';
+
+            // Sort indicator
+            var sortInfo = null;
+            var sortPos = -1;
+            sortKeys.forEach(function(sk, i) { if (sk.col === idx) { sortInfo = sk; sortPos = i; } });
+
+            var label = col;
+            var icon = '';
+            if (sortInfo) {
+                var arrow = sortInfo.dir === 1 ? 'bi-arrow-up' : 'bi-arrow-down';
+                var badge = sortKeys.length > 1 ? '<span style="font-size:0.65rem;color:#a78bfa;margin-right:2px;">' + (sortPos+1) + '</span>' : '';
+                icon = ' ' + badge + '<i class="bi ' + arrow + '" style="color:#22d3ee;font-size:0.85rem;font-weight:700;text-shadow:0 0 6px rgba(34,211,238,0.5);"></i>';
+            } else {
+                icon = ' <i class="bi bi-arrow-down-up" style="color:rgba(148,163,184,0.35);font-size:0.7rem;"></i>';
+            }
+
+            th.innerHTML = '<span style="color:#e2e8f0;">' + label + '</span>' + icon;
+
+            th.addEventListener('click', function(e) {
+                handleSort(idx, e.shiftKey);
+            });
+            thead.appendChild(th);
+        });
+    }
+
+    // ── Sort logic ──
+    function handleSort(colIdx, isShift) {
+        var existing = -1;
+        sortKeys.forEach(function(sk, i) { if (sk.col === colIdx) existing = i; });
+
+        if (isShift) {
+            // Multi-column: add or toggle
+            if (existing >= 0) {
+                sortKeys[existing].dir *= -1;
+            } else {
+                sortKeys.push({col: colIdx, dir: 1});
+            }
+        } else {
+            // Single column
+            if (existing >= 0 && sortKeys.length === 1) {
+                sortKeys[0].dir *= -1;
+            } else {
+                sortKeys = [{col: colIdx, dir: 1}];
+            }
+        }
+
+        applySort();
+        currentPage = 1;
+        renderHead();
+        renderBody();
+        renderPagination();
+        updateSortBadge();
+    }
+
+    function applySort() {
+        if (sortKeys.length === 0) {
+            sortedData = ALL_DATA.slice();
+            return;
+        }
+        sortedData = ALL_DATA.slice().sort(function(a, b) {
+            for (var i = 0; i < sortKeys.length; i++) {
+                var sk = sortKeys[i];
+                var av = a[sk.col];
+                var bv = b[sk.col];
+                var cmp = compareValues(av, bv);
+                if (cmp !== 0) return cmp * sk.dir;
+            }
+            return 0;
+        });
+    }
+
+    function compareValues(a, b) {
+        if (a === null && b === null) return 0;
+        if (a === null) return 1;
+        if (b === null) return -1;
+        if (typeof a === 'number' && typeof b === 'number') return a - b;
+        var sa = String(a), sb = String(b);
+        // Try numeric parse
+        var na = parseFloat(sa), nb = parseFloat(sb);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return sa.localeCompare(sb);
+    }
+
+    function updateSortBadge() {
+        if (sortKeys.length === 0) {
+            sortBadge.classList.add('d-none');
+            return;
+        }
+        var parts = sortKeys.map(function(sk, i) {
+            return COLUMNS[sk.col] + (sk.dir === 1 ? ' ASC' : ' DESC');
+        });
+        sortBadge.innerHTML = '<i class="bi bi-sort-alpha-down me-1"></i>Sort: ' + parts.join(', ') +
+            ' <i class="bi bi-x-circle" style="color:var(--accent-red);margin-left:4px;"></i>';
+        sortBadge.classList.remove('d-none');
+    }
+
+    // Clear sort on badge click
+    sortBadge.addEventListener('click', function() {
+        sortKeys = [];
+        sortedData = ALL_DATA.slice();
+        currentPage = 1;
+        renderHead();
+        renderBody();
+        renderPagination();
+        updateSortBadge();
+    });
+
+    // ── Render table body ──
+    function renderBody() {
+        var start = (currentPage - 1) * pageSize;
+        var end = Math.min(start + pageSize, sortedData.length);
+        var html = '';
+        if (sortedData.length === 0) {
+            html = '<tr><td colspan="' + COLUMNS.length + '" class="text-secondary text-center py-4">No data</td></tr>';
+        } else {
+            for (var r = start; r < end; r++) {
+                html += '<tr>';
+                var row = sortedData[r];
+                for (var c = 0; c < row.length; c++) {
+                    var v = row[c];
+                    html += '<td class="text-nowrap"><small>' + (v !== null && v !== '' ? v : '-') + '</small></td>';
+                }
+                html += '</tr>';
+            }
+        }
+        tbody.innerHTML = html;
+    }
+
+    // ── Pagination ──
+    function renderPagination() {
+        var totalPages = Math.max(1, Math.ceil(sortedData.length / pageSize));
+        if (totalPages <= 1) { pagNav.style.display = 'none'; return; }
+        pagNav.style.display = '';
+
+        var start = Math.max(1, currentPage - 3);
+        var end = Math.min(totalPages, currentPage + 3);
+        var html = '';
+
+        if (currentPage > 1) {
+            html += '<li class="page-item"><a class="page-link" href="#" data-p="' + (currentPage-1) + '" style="border-radius:8px 0 0 8px;"><i class="bi bi-chevron-left"></i></a></li>';
+        }
+        for (var p = start; p <= end; p++) {
+            html += '<li class="page-item ' + (p === currentPage ? 'active' : '') + '"><a class="page-link" href="#" data-p="' + p + '">' + p + '</a></li>';
+        }
+        if (currentPage < totalPages) {
+            html += '<li class="page-item"><a class="page-link" href="#" data-p="' + (currentPage+1) + '" style="border-radius:0 8px 8px 0;"><i class="bi bi-chevron-right"></i></a></li>';
+        }
+        pagList.innerHTML = html;
+
+        pagList.querySelectorAll('a[data-p]').forEach(function(a) {
+            a.addEventListener('click', function(e) {
+                e.preventDefault();
+                currentPage = parseInt(this.dataset.p);
+                renderBody();
+                renderPagination();
+                document.getElementById('dataTable').scrollIntoView({behavior: 'instant'});
+            });
+        });
+    }
+
+    pagSizeSel.addEventListener('change', function() {
+        pageSize = parseInt(this.value);
+        currentPage = 1;
+        renderBody();
+        renderPagination();
+    });
+
+    // ── Column selector (custom panel toggle) ──
+    var form = document.getElementById('filterForm');
+    var hiddenCols = document.getElementById('hiddenColumns');
+    var checkboxes = document.querySelectorAll('.col-checkbox');
+    var colCountBadge = document.getElementById('colCountBadge');
+    var colPanel = document.getElementById('colPanel');
+    var colToggleBtn = document.getElementById('columnSelectorBtn');
+
+    function updateColCount() {
+        var n = document.querySelectorAll('.col-checkbox:checked').length;
+        if (colCountBadge) colCountBadge.textContent = n;
+    }
+
+    // Toggle panel
+    if (colToggleBtn && colPanel) {
+        colToggleBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var open = colPanel.style.display !== 'none';
+            colPanel.style.display = open ? 'none' : 'block';
+            if (!open) {
+                var si = document.getElementById('colSearch');
+                if (si) { si.value = ''; si.focus(); }
+                document.querySelectorAll('.col-item').forEach(function(l){ l.style.display = ''; });
+            }
+        });
+        // Close when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!colPanel.contains(e.target) && e.target !== colToggleBtn && !colToggleBtn.contains(e.target)) {
+                colPanel.style.display = 'none';
+            }
+        });
+        // Prevent clicks inside panel from closing it or submitting form
+        colPanel.addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+    }
+
+    checkboxes.forEach(function(cb) { cb.addEventListener('change', updateColCount); });
+
+    var selAll = document.getElementById('selectAllBtn');
+    if (selAll) selAll.addEventListener('click', function() { checkboxes.forEach(function(cb){cb.checked=true;}); updateColCount(); });
+
+    var deselAll = document.getElementById('deselectAllBtn');
+    if (deselAll) deselAll.addEventListener('click', function() { checkboxes.forEach(function(cb){cb.checked=false;}); updateColCount(); });
+
+    var applyBtn = document.getElementById('applyColumnsBtn');
+    if (applyBtn) {
+        applyBtn.addEventListener('click', function() {
+            var sel = Array.from(document.querySelectorAll('.col-checkbox:checked')).map(function(cb){return cb.value;});
+            hiddenCols.value = sel.join(',');
+            form.submit();
+        });
+    }
+
+    // ── Initial render ──
+    renderHead();
+    renderBody();
+    renderPagination();
+})();
+</script>
+<script>
+// Column search — isolated script block
+(function() {
+    var searchInput = document.getElementById('colSearch');
+    if (!searchInput) return;
+    searchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') e.preventDefault();
+    });
+    searchInput.addEventListener('input', function() {
+        var q = this.value.toLowerCase();
+        var items = document.querySelectorAll('.col-item');
+        for (var i = 0; i < items.length; i++) {
+            var name = items[i].getAttribute('data-colname') || '';
+            items[i].style.display = name.toLowerCase().indexOf(q) >= 0 ? '' : 'none';
+        }
+    });
+})();
+</script>
 {% endblock %}

@@ -1,95 +1,196 @@
 {% extends "base.html" %}
 {% block title %}Profiling - {{ tenant_name }}{% endblock %}
 
-{% block content %}
-<h4 class="mb-4">Data Profiling</h4>
+{% block extra_css %}
+<style>
+    .metric-card {
+        border-left: 3px solid;
+        border-radius: 12px;
+    }
+    .metric-card .metric-value {
+        font-size: 1.8rem;
+        font-weight: 700;
+        line-height: 1;
+        background: linear-gradient(135deg, var(--accent-purple), var(--accent-cyan));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+    .metric-card .metric-label {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+</style>
+{% endblock %}
 
-<!-- Filters -->
-<div class="card mb-3">
-    <div class="card-body py-2">
-        <form method="get" class="d-flex gap-3 align-items-center">
-            <div>
-                <select name="loan_type" class="form-select form-select-sm">
-                    <option value="RETAIL" {% if loan_type == "RETAIL" %}selected{% endif %}>Retail</option>
-                    <option value="COMMERCIAL" {% if loan_type == "COMMERCIAL" %}selected{% endif %}>Commercial</option>
-                </select>
-            </div>
-            <div>
-                <select name="data_type" class="form-select form-select-sm">
-                    <option value="credit" {% if data_type == "credit" %}selected{% endif %}>Credits</option>
-                    <option value="payment" {% if data_type == "payment" %}selected{% endif %}>Payments</option>
-                </select>
-            </div>
-            <button type="submit" class="btn btn-sm btn-primary">
-                <i class="bi bi-bar-chart"></i> Profile
-            </button>
-            <span class="text-muted ms-auto">Rows: {{ profile.row_count|default:"0" }}</span>
-        </form>
-    </div>
+{% block content %}
+<!-- Header with filters -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="page-title mb-0 text-glow">Data Profiling</h4>
+    <form method="get" class="d-flex gap-2 align-items-center">
+        <select name="loan_type" class="form-select form-select-sm" style="width: 140px; border-radius: 8px;">
+            <option value="RETAIL" {% if loan_type == "RETAIL" %}selected{% endif %}>Retail</option>
+            <option value="COMMERCIAL" {% if loan_type == "COMMERCIAL" %}selected{% endif %}>Commercial</option>
+        </select>
+        <select name="data_type" class="form-select form-select-sm" style="width: 140px; border-radius: 8px;">
+            <option value="credit" {% if data_type == "credit" %}selected{% endif %}>Credits</option>
+            <option value="payment" {% if data_type == "payment" %}selected{% endif %}>Payments</option>
+        </select>
+        <button type="submit" class="btn btn-accent btn-sm" style="border-radius: 8px;">
+            <i class="bi bi-bar-chart"></i> Analyze
+        </button>
+    </form>
 </div>
 
 {% if profile.row_count %}
-<!-- Numeric Stats -->
-<div class="card mb-3">
-    <div class="card-header"><h6 class="mb-0">Numeric Field Statistics</h6></div>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-sm table-striped mb-0">
-                <thead class="table-dark">
-                    <tr><th>Field</th><th>Min</th><th>Max</th><th>Avg</th><th>Std Dev</th><th>Zero/Null Ratio</th></tr>
-                </thead>
-                <tbody>
-                {% for field, stats in profile.numeric_stats.items %}
-                <tr>
-                    <td><strong>{{ field }}</strong></td>
-                    <td>{{ stats.min|floatformat:2 }}</td>
-                    <td>{{ stats.max|floatformat:2 }}</td>
-                    <td>{{ stats.avg|floatformat:2 }}</td>
-                    <td>{{ stats.stddev|floatformat:2 }}</td>
-                    <td>
-                        <div class="progress" style="height: 16px; width: 100px;">
-                            <div class="progress-bar {% if stats.zero_or_null_ratio > 0.5 %}bg-danger{% elif stats.zero_or_null_ratio > 0.1 %}bg-warning{% else %}bg-success{% endif %}"
-                                 style="width: {{ stats.zero_or_null_ratio|floatformat:0 }}%">
-                                {{ stats.zero_or_null_ratio|floatformat:2 }}
-                            </div>
+
+<!-- Summary Cards -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="glass-card metric-card h-100" style="border-left-color: var(--accent-purple);">
+            <div class="card-body py-3">
+                <div class="metric-label">Total Rows</div>
+                <div class="metric-value">{{ profile.row_count|floatformat:0 }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="glass-card metric-card h-100" style="border-left-color: var(--accent-green);">
+            <div class="card-body py-3">
+                <div class="metric-label">Numeric Fields</div>
+                <div class="metric-value" id="numeric-count">0</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="glass-card metric-card h-100" style="border-left-color: var(--accent-cyan);">
+            <div class="card-body py-3">
+                <div class="metric-label">Categorical Fields</div>
+                <div class="metric-value" id="cat-count">0</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="glass-card metric-card h-100" style="border-left-color: var(--accent-amber);">
+            <div class="card-body py-3">
+                <div class="metric-label">Avg Completeness</div>
+                <div class="metric-value" id="completeness-val">-</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tabs -->
+<ul class="nav nav-pills-glass mb-3" role="tablist">
+    <li class="nav-item">
+        <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#tab-numeric">
+            <i class="bi bi-123"></i> Numeric Stats
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-categorical">
+            <i class="bi bi-pie-chart"></i> Categorical
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-completeness">
+            <i class="bi bi-clipboard-data"></i> Completeness
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <!-- Numeric Stats Tab -->
+    <div class="tab-pane fade show active" id="tab-numeric">
+        <div class="glass-card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-glass table-hover">
+                        <thead>
+                            <tr>
+                                <th>Field</th>
+                                <th class="text-end">Min</th>
+                                <th class="text-end">Max</th>
+                                <th class="text-end">Average</th>
+                                <th class="text-end">Std Dev</th>
+                                <th style="width: 220px;">Range</th>
+                                <th style="width: 150px;">Zero/Null</th>
+                            </tr>
+                        </thead>
+                        <tbody id="numeric-table"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Categorical Tab -->
+    <div class="tab-pane fade" id="tab-categorical">
+        <div class="row g-3">
+            {% for field, values in profile.categorical_stats.items %}
+            <div class="col-lg-4 col-md-6">
+                <div class="glass-card h-100">
+                    <div class="card-header px-3 py-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0"><code>{{ field }}</code></h6>
+                            <span class="badge badge-glass" id="cat-unique-{{ field }}"></span>
                         </div>
-                    </td>
-                </tr>
-                {% endfor %}
-                </tbody>
-            </table>
+                    </div>
+                    <div class="card-body py-2 d-flex align-items-center justify-content-center">
+                        <div style="max-width: 200px; width: 100%;">
+                            <canvas id="chart-{{ field }}"></canvas>
+                        </div>
+                    </div>
+                    <div class="card-footer p-0" style="background: transparent; border-top: 1px solid var(--glass-border-light); max-height: 180px; overflow-y: auto;">
+                        <table class="table table-glass mb-0" style="font-size: 0.78rem;">
+                            <thead><tr><th>Value</th><th class="text-end">Count</th><th style="width: 100px;">Share</th></tr></thead>
+                            <tbody id="cat-table-{{ field }}"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% empty %}
+            <div class="col-12">
+                <div class="alert-glass-info p-3">No categorical fields available.</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Completeness Tab -->
+    <div class="tab-pane fade" id="tab-completeness">
+        <div class="glass-card">
+            <div class="card-header px-3 py-2"><h6 class="mb-0" style="font-weight: 600;">Field Completeness</h6></div>
+            <div class="card-body p-0">
+                <table class="table table-glass table-hover">
+                    <thead>
+                        <tr>
+                            <th>Field</th>
+                            <th class="text-end" style="width: 100px;">Total</th>
+                            <th class="text-end" style="width: 100px;">Missing</th>
+                            <th style="width: 40%;">Completeness</th>
+                            <th class="text-end" style="width: 100px;">Missing %</th>
+                        </tr>
+                    </thead>
+                    <tbody id="completeness-table"></tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>
 
-<!-- Charts Row -->
-<div class="row g-3 mb-3">
-    <!-- Categorical Distribution -->
-    <div class="col-md-6">
-        <div class="card h-100">
-            <div class="card-header"><h6 class="mb-0">Categorical Distribution</h6></div>
-            <div class="card-body">
-                {% for field, values in profile.categorical_stats.items %}
-                <h6 class="text-muted">{{ field }}</h6>
-                <canvas id="chart-{{ field }}" height="200"></canvas>
-                {% endfor %}
-            </div>
-        </div>
-    </div>
-
-    <!-- Null Ratios -->
-    <div class="col-md-6">
-        <div class="card h-100">
-            <div class="card-header"><h6 class="mb-0">Null Ratios</h6></div>
-            <div class="card-body">
-                <canvas id="chart-nulls" height="300"></canvas>
-            </div>
-        </div>
-    </div>
-</div>
 {% else %}
-<div class="alert alert-info">
-    <i class="bi bi-info-circle"></i> No data available for profiling. Run a sync first.
+<div class="glass-card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-bar-chart" style="font-size: 3rem; color: var(--accent-purple); opacity: 0.5;"></i>
+        <h5 class="mt-3" style="color: var(--text-secondary);">No data available</h5>
+        <p class="text-secondary">Upload and sync data first to see profiling results.</p>
+        <a href="{% url 'frontend:upload' %}" class="btn btn-accent btn-sm" style="border-radius: 8px;">
+            <i class="bi bi-cloud-upload"></i> Upload CSV
+        </a>
+    </div>
 </div>
 {% endif %}
 {% endblock %}
@@ -97,50 +198,157 @@
 {% block extra_js %}
 {% if profile.row_count %}
 <script>
-const profileData = {{ profile_json|safe }};
+const P = {{ profile_json|safe }};
+const COLORS = ['#7c3aed','#06b6d4','#10b981','#f59e0b','#ef4444','#ec4899','#8b5cf6','#14b8a6'];
 
-// Categorical charts
-if (profileData.categorical_stats) {
-    Object.entries(profileData.categorical_stats).forEach(([field, values]) => {
+// Summary card counts
+const numFields = Object.keys(P.numeric_stats || {});
+const catFields = Object.keys(P.categorical_stats || {});
+document.getElementById('numeric-count').textContent = numFields.length;
+document.getElementById('cat-count').textContent = catFields.length;
+
+// Avg completeness from all fields
+if (P.completeness && Object.keys(P.completeness).length) {
+    const vals = Object.values(P.completeness);
+    const avgFilled = vals.reduce((a,b) => a + b.filled_pct, 0) / vals.length;
+    document.getElementById('completeness-val').textContent = avgFilled.toFixed(1) + '%';
+}
+
+// Numeric stats table with per-field range bars
+if (numFields.length) {
+    const tbody = document.getElementById('numeric-table');
+    if (tbody) {
+        const fmt = (v) => {
+            if (Math.abs(v) >= 1000000) return (v/1000000).toFixed(1) + 'M';
+            if (Math.abs(v) >= 1000) return (v/1000).toFixed(1) + 'K';
+            if (Number.isInteger(v)) return v.toLocaleString();
+            return v.toFixed(2);
+        };
+        tbody.innerHTML = numFields.map(f => {
+            const s = P.numeric_stats[f];
+            const range = s.max - s.min;
+            const avgPct = range > 0 ? ((s.avg - s.min) / range * 100).toFixed(1) : 50;
+            const zeroColor = s.zero_or_null_ratio > 0.5 ? '#ef4444' : s.zero_or_null_ratio > 0.1 ? '#f59e0b' : '#10b981';
+            const zeroPct = (s.zero_or_null_ratio * 100).toFixed(0);
+            return '<tr>' +
+                '<td><code>' + f + '</code></td>' +
+                '<td class="text-end">' + fmt(s.min) + '</td>' +
+                '<td class="text-end">' + fmt(s.max) + '</td>' +
+                '<td class="text-end"><strong>' + fmt(s.avg) + '</strong></td>' +
+                '<td class="text-end">' + fmt(s.stddev) + '</td>' +
+                '<td>' +
+                    '<div style="position:relative;height:14px;background:rgba(255,255,255,0.06);border-radius:7px;overflow:hidden;">' +
+                        '<div style="position:absolute;left:0;top:0;height:100%;width:100%;background:linear-gradient(90deg,rgba(6,182,212,0.25),rgba(124,58,237,0.25),rgba(245,158,11,0.25));border-radius:7px;"></div>' +
+                        '<div style="position:absolute;left:' + avgPct + '%;top:1px;width:3px;height:12px;background:#fff;border-radius:2px;transform:translateX(-50%);box-shadow:0 0 4px rgba(255,255,255,0.5);" title="Avg: ' + s.avg.toFixed(2) + '"></div>' +
+                    '</div>' +
+                    '<div class="d-flex justify-content-between" style="font-size:0.65rem;color:var(--text-secondary);margin-top:1px;"><span>' + fmt(s.min) + '</span><span>' + fmt(s.max) + '</span></div>' +
+                '</td>' +
+                '<td>' +
+                    '<div class="d-flex align-items-center gap-2">' +
+                        '<div class="quality-bar flex-grow-1"><div class="quality-bar-fill" style="width:' + zeroPct + '%;background:' + zeroColor + '"></div></div>' +
+                        '<small class="text-secondary" style="min-width:35px;text-align:right;">' + zeroPct + '%</small>' +
+                    '</div>' +
+                '</td>' +
+                '</tr>';
+        }).join('');
+    }
+}
+
+// Categorical charts + tables
+if (P.categorical_stats) {
+    Object.entries(P.categorical_stats).forEach(([field, fieldData]) => {
         const ctx = document.getElementById('chart-' + field);
         if (!ctx) return;
-        new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: values.map(v => v.value),
-                datasets: [{
-                    data: values.map(v => v.frequency),
-                    backgroundColor: ['#0d6efd', '#198754', '#ffc107', '#dc3545', '#6f42c1', '#0dcaf0'],
-                }]
-            },
-            options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
-        });
+        const values = fieldData.values;
+        const uniqueCount = fieldData.unique_count;
+        const total = values.reduce((s,v) => s + v.frequency, 0);
+
+        const badge = document.getElementById('cat-unique-' + field);
+        if (badge) badge.textContent = uniqueCount + ' unique';
+
+        // Chart: top 15 for readability, doughnut for <=6 values
+        const chartValues = values.slice(0, 15);
+        const chartType = uniqueCount > 6 ? 'bar' : 'doughnut';
+
+        if (chartType === 'doughnut') {
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: chartValues.map(v => v.value === null || v.value === '' ? '(null)' : String(v.value)),
+                    datasets: [{
+                        data: chartValues.map(v => v.frequency),
+                        backgroundColor: COLORS.slice(0, chartValues.length).map(c => c + '99'),
+                        borderWidth: 1,
+                        borderColor: 'rgba(255,255,255,0.1)',
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    cutout: '55%',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (c) => c.label + ': ' + c.raw.toLocaleString() + ' (' + ((c.raw/total)*100).toFixed(1) + '%)'
+                            }
+                        }
+                    }
+                }
+            });
+        } else {
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: chartValues.map(v => v.value === null || v.value === '' ? '(null)' : String(v.value)),
+                    datasets: [{
+                        data: chartValues.map(v => v.frequency),
+                        backgroundColor: COLORS[0] + '66',
+                        borderColor: COLORS[0],
+                        borderWidth: 1,
+                        borderRadius: 3,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    indexAxis: 'y',
+                    plugins: { legend: { display: false } },
+                    scales: { x: { beginAtZero: true, ticks: { font: { size: 10 } } }, y: { ticks: { font: { size: 10 } } } }
+                }
+            });
+        }
+
+        // Table: show ALL values (no limit)
+        const tbody = document.getElementById('cat-table-' + field);
+        if (tbody) {
+            tbody.innerHTML = values.map((v, i) => {
+                const pct = ((v.frequency / total) * 100).toFixed(1);
+                const label = v.value === null || v.value === '' || v.value === 0 ? '<em class="text-secondary">(null)</em>' : v.value;
+                return '<tr>' +
+                    '<td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + COLORS[i % COLORS.length] + ';margin-right:5px;"></span>' + label + '</td>' +
+                    '<td class="text-end">' + v.frequency.toLocaleString() + '</td>' +
+                    '<td><div class="d-flex align-items-center gap-1"><div class="quality-bar flex-grow-1"><div class="quality-bar-fill" style="width:' + pct + '%;background:' + COLORS[i % COLORS.length] + '"></div></div><small class="text-secondary">' + pct + '%</small></div></td>' +
+                    '</tr>';
+            }).join('');
+        }
     });
 }
 
-// Null ratios chart
-if (profileData.null_ratios) {
-    const nullCtx = document.getElementById('chart-nulls');
-    if (nullCtx) {
-        const labels = Object.keys(profileData.null_ratios);
-        const data = Object.values(profileData.null_ratios).map(v => (v * 100).toFixed(1));
-        new Chart(nullCtx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Null %',
-                    data: data,
-                    backgroundColor: data.map(v => v > 50 ? '#dc3545' : v > 10 ? '#ffc107' : '#198754'),
-                }]
-            },
-            options: {
-                responsive: true,
-                indexAxis: 'y',
-                scales: { x: { beginAtZero: true, max: 100, title: { display: true, text: '%' } } },
-                plugins: { legend: { display: false } }
-            }
-        });
+// Completeness table - all fields
+if (P.completeness && Object.keys(P.completeness).length) {
+    const tbody = document.getElementById('completeness-table');
+    if (tbody) {
+        tbody.innerHTML = Object.entries(P.completeness).map(([f, d]) => {
+            const missingPct = d.missing_pct;
+            const filledPct = d.filled_pct;
+            const color = missingPct > 50 ? '#ef4444' : missingPct > 10 ? '#f59e0b' : missingPct > 0 ? '#06b6d4' : '#10b981';
+            return '<tr>' +
+                '<td><code>' + f + '</code></td>' +
+                '<td class="text-end">' + d.total.toLocaleString() + '</td>' +
+                '<td class="text-end">' + d.missing_count.toLocaleString() + '</td>' +
+                '<td><div class="d-flex align-items-center gap-2"><div class="quality-bar flex-grow-1"><div class="quality-bar-fill" style="width:' + filledPct + '%;background:' + color + '"></div></div><small class="text-secondary">' + filledPct + '%</small></div></td>' +
+                '<td class="text-end"><span class="badge" style="background:' + color + '22; color:' + color + '; border: 1px solid ' + color + '44;">' + missingPct + '%</span></td>' +
+                '</tr>';
+        }).join('');
     }
 }
 </script>
