@@ -2,14 +2,16 @@
 
 ## Genel Yapi
 
-Her tenant icin hem PostgreSQL hem ClickHouse'da ayri veritabanlari bulunur.
+Tek PostgreSQL veritabani icinde schema-based multi-tenancy uygulanir.
+Her tenant icin ayri bir PostgreSQL schema'si ve ayri bir ClickHouse veritabani bulunur.
 
 ```
 PostgreSQL Instance
-├── financial_shared    ← Paylasimli: sadece tenant registry + auth
-├── bank001_ops         ← BANK001 operasyonel verileri
-├── bank002_ops         ← BANK002 operasyonel verileri
-└── bank003_ops         ← BANK003 operasyonel verileri
+└── financial_shared (DB)
+    ├── public schema     ← Paylasimli: tenant registry + Django auth tablolari
+    ├── bank001 schema    ← BANK001 operasyonel verileri
+    ├── bank002 schema    ← BANK002 operasyonel verileri
+    └── bank003 schema    ← BANK003 operasyonel verileri
 
 ClickHouse Instance
 ├── bank001_dw          ← BANK001 data warehouse
@@ -17,11 +19,16 @@ ClickHouse Instance
 └── bank003_dw          ← BANK003 data warehouse
 ```
 
-Django Database Router ile request'teki tenant_id'ye gore dogru DB'ye yonlendirme yapilir.
+Tenant izolasyonu PostgreSQL `search_path` mekanizmasi ile saglanir:
+```sql
+SET search_path TO bank001, public;
+-- Artik SyncLog.objects.all() → bank001.sync_logs tablosundan okur
+-- Tenant.objects.all() → public.tenants tablosundan okur (fallback)
+```
 
 ---
 
-## 1. PostgreSQL - Paylasimli DB: `financial_shared`
+## 1. PostgreSQL - public schema (financial_shared DB)
 
 ### `tenants`
 
@@ -33,8 +40,8 @@ CREATE TABLE tenants (
     tenant_id       VARCHAR(20) UNIQUE NOT NULL,    -- 'BANK001', 'BANK002', 'BANK003'
     name            VARCHAR(100) NOT NULL,
     api_key_hash    VARCHAR(255) NOT NULL,           -- Hash'lenmis API key (plain text DEGIL)
-    api_key_prefix  VARCHAR(8) NOT NULL,             -- "sk_live_a..." (tanimlama icin ilk 8 karakter)
-    pg_database     VARCHAR(50) NOT NULL,            -- 'bank001_ops'
+    api_key_prefix  VARCHAR(16) NOT NULL,            -- "sk_live_2cce4004" (tanimlama icin ilk 16 karakter)
+    pg_schema       VARCHAR(50) NOT NULL,            -- 'bank001'
     ch_database     VARCHAR(50) NOT NULL,            -- 'bank001_dw'
     is_active       BOOLEAN DEFAULT TRUE,
     created_at      TIMESTAMP DEFAULT NOW(),
@@ -43,17 +50,17 @@ CREATE TABLE tenants (
 ```
 
 **Ornek veri:**
-| tenant_id | name | pg_database | ch_database |
-|-----------|------|-------------|-------------|
-| BANK001 | Banka 1 | bank001_ops | bank001_dw |
-| BANK002 | Banka 2 | bank002_ops | bank002_dw |
-| BANK003 | Banka 3 | bank003_ops | bank003_dw |
+| tenant_id | name | pg_schema | ch_database |
+|-----------|------|-----------|-------------|
+| BANK001 | Bank 001 | bank001 | bank001_dw |
+| BANK002 | Bank 002 | bank002 | bank002_dw |
+| BANK003 | Bank 003 | bank003 | bank003_dw |
 
 ---
 
-## 2. PostgreSQL - Tenant DB'leri: `bank001_ops`, `bank002_ops`, `bank003_ops`
+## 2. PostgreSQL - Tenant Schema'lari: `bank001`, `bank002`, `bank003`
 
-Her tenant DB'si ayni semaya sahiptir. Asagidaki tablolar her tenant DB'sinde bulunur.
+Her tenant schema'si ayni tablo yapisina sahiptir. Asagidaki tablolar her schema'da bulunur.
 
 ### `sync_configurations`
 
@@ -357,31 +364,44 @@ API endpoint'i (`GET /api/profiling/`) bu sorgulari dogrudan calistirip sonucu J
 
 ---
 
-## 6. Django Database Router
+## 6. Django Schema-Based Tenant Router
 
 ```python
+# Tek veritabani, schema ile izolasyon
 DATABASES = {
-    'default': {'NAME': 'financial_shared', ...},   # Tenant registry
-    'bank001_ops': {'NAME': 'bank001_ops', ...},     # BANK001 operasyonel
-    'bank002_ops': {'NAME': 'bank002_ops', ...},     # BANK002 operasyonel
-    'bank003_ops': {'NAME': 'bank003_ops', ...},     # BANK003 operasyonel
+    'default': {'NAME': 'financial_shared', ...},
 }
 
-class TenantDatabaseRouter:
-    """
-    - Tenant model → 'default' (financial_shared)
-    - SyncLog, ValidationError, SyncConfiguration → tenant-specific PG DB
-    - ClickHouse tablolari → clickhouse-connect ile dogrudan erisim (Django ORM disinda)
-    """
-    TENANT_MODELS = ['SyncLog', 'ValidationError', 'SyncConfiguration']
+# Schema gecisi search_path ile yapilir
+def set_current_tenant_schema(schema_name):
+    """Thread-local'a schema kaydet ve search_path'i ayarla."""
+    _thread_local.tenant_schema = schema_name
+    with connection.cursor() as cursor:
+        cursor.execute("SET search_path TO %s, public", [schema_name])
 
+class TenantSchemaRouter:
+    """
+    Tum islemler 'default' DB'ye yonlendirilir.
+    Tenant izolasyonu search_path ile saglanir:
+      - Tenant model → public schema (financial_shared)
+      - SyncLog, ValidationError, SyncConfiguration → tenant schema (bank001/bank002/bank003)
+      - ClickHouse tablolari → clickhouse-connect ile dogrudan erisim (Django ORM disinda)
+    """
     def db_for_read(self, model, **hints):
-        if model.__name__ in self.TENANT_MODELS:
-            return get_current_tenant_db()  # thread-local'dan tenant_id → pg_database
         return 'default'
 
     def db_for_write(self, model, **hints):
-        if model.__name__ in self.TENANT_MODELS:
-            return get_current_tenant_db()
         return 'default'
+
+    def allow_migrate(self, db, app_label, model_name=None, **hints):
+        return db == 'default'
 ```
+
+### Neden Ayri DB Degil Schema?
+| Kriter | Ayri DB | Schema-based |
+|--------|---------|-------------|
+| Izolasyon | Fiziksel | Mantiksal (search_path) |
+| Connection pool | DB basina ayri | Tek pool, paylasimli |
+| Migration | Her DB'ye ayri calistir | Tek DB, schema basina tablo olustur |
+| Yeni tenant ekleme | Yeni DB + config | `CREATE SCHEMA` + seed |
+| Django config | N+1 DATABASES entry | Tek `default` entry |

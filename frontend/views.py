@@ -1,9 +1,11 @@
 """Frontend views using Django templates + HTMX."""
+import csv
+import io
 import json
 import logging
 
 from django.contrib.auth.hashers import check_password
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect
 from django.views import View
 
@@ -173,8 +175,22 @@ class SyncView(View):
         finally:
             clear_current_tenant_schema()
 
+        # Check Redis for failed records (post-sync failures only)
+        from external_bank import storage
+        failed_records = []
+        for loan_type in ['RETAIL', 'COMMERCIAL']:
+            for file_type in ['credit', 'payment_plan']:
+                count = storage.get_failed_row_count(ctx['tenant_id'], loan_type, file_type)
+                if count > 0:
+                    failed_records.append({
+                        'loan_type': loan_type,
+                        'file_type': file_type,
+                        'count': count,
+                    })
+
         return render(request, 'sync.html', {
             **ctx, 'configs': configs, 'logs': logs,
+            'failed_records': failed_records,
         })
 
 
@@ -184,7 +200,7 @@ class SyncTriggerView(View):
     def post(self, request):
         ctx = _get_tenant_context(request)
         if not ctx:
-            return JsonResponse({'error': 'Not authenticated'}, status=401)
+            return HttpResponse(status=401)
 
         loan_type = request.POST.get('loan_type')
         try:
@@ -204,9 +220,30 @@ class SyncTriggerView(View):
         finally:
             clear_current_tenant_schema()
 
-        return render(request, 'partials/sync_logs.html', {
+        # Build failed records for OOB swap
+        from external_bank import storage
+        failed_records = []
+        for lt in ['RETAIL', 'COMMERCIAL']:
+            for ft in ['credit', 'payment_plan']:
+                c = storage.get_failed_row_count(ctx['tenant_id'], lt, ft)
+                if c > 0:
+                    failed_records.append({
+                        'loan_type': lt,
+                        'file_type': ft,
+                        'count': c,
+                    })
+
+        # Render sync logs (primary swap) + failed records (OOB swap)
+        logs_html = render(request, 'partials/sync_logs.html', {
             **ctx, 'logs': logs,
-        })
+        }).content.decode()
+
+        failed_html = render(request, 'partials/failed_records.html', {
+            **ctx, 'failed_records': failed_records,
+        }).content.decode()
+
+        combined = logs_html + f'\n<div id="failed-records" hx-swap-oob="innerHTML">{failed_html}</div>'
+        return HttpResponse(combined)
 
 
 class DataViewPage(View):
@@ -324,4 +361,108 @@ class ErrorsView(View):
 
         return render(request, 'errors.html', {
             **ctx, 'errors': errors, 'sync_log': sync_log, 'logs': logs,
+        })
+
+
+class FailedRecordsPreviewView(View):
+    """HTMX endpoint: preview failed records from Redis."""
+
+    def get(self, request):
+        ctx = _get_tenant_context(request)
+        if not ctx:
+            return HttpResponse(status=401)
+        clear_current_tenant_schema()
+
+        from external_bank import storage
+
+        loan_type = request.GET.get('loan_type')
+        file_type = request.GET.get('file_type')
+
+        if not loan_type or not file_type:
+            return JsonResponse({'error': 'loan_type and file_type required'}, status=400)
+
+        records = storage.get_failed(ctx['tenant_id'], loan_type, file_type)
+        preview = records[:20]  # Show first 20 rows
+        columns = list(preview[0].keys()) if preview else []
+        rows = [[row.get(col, '') for col in columns] for row in preview]
+
+        return render(request, 'partials/failed_preview.html', {
+            'columns': columns,
+            'rows': rows,
+            'total': len(records),
+            'showing': len(preview),
+        })
+
+
+class FailedRecordsDownloadView(View):
+    """Download failed records from Redis as CSV."""
+
+    def get(self, request):
+        ctx = _get_tenant_context(request)
+        if not ctx:
+            return redirect('frontend:login')
+        clear_current_tenant_schema()
+
+        from external_bank import storage
+
+        loan_type = request.GET.get('loan_type')
+        file_type = request.GET.get('file_type')
+
+        if not loan_type or not file_type:
+            return JsonResponse({'error': 'loan_type and file_type required'}, status=400)
+
+        records = storage.get_failed(ctx['tenant_id'], loan_type, file_type)
+        if not records:
+            return JsonResponse({'error': 'No failed records found'}, status=404)
+
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=records[0].keys(), delimiter=';')
+        writer.writeheader()
+        writer.writerows(records)
+
+        response = HttpResponse(output.getvalue(), content_type='text/csv')
+        filename = f"failed_{loan_type.lower()}_{file_type}.csv"
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+
+class FailedRecordsDismissView(View):
+    """Dismiss (delete) failed records from Redis."""
+
+    def post(self, request):
+        ctx = _get_tenant_context(request)
+        if not ctx:
+            return HttpResponse(status=401)
+        clear_current_tenant_schema()
+
+        from external_bank import storage
+
+        loan_type = request.POST.get('loan_type')
+        file_type = request.POST.get('file_type')
+
+        if not loan_type or not file_type:
+            return HttpResponse('Missing parameters', status=400)
+
+        count = storage.get_failed_row_count(ctx['tenant_id'], loan_type, file_type)
+        storage.clear_failed(ctx['tenant_id'], loan_type, file_type)
+
+        logger.info(
+            "Dismissed %d failed records: %s/%s/%s",
+            count, ctx['tenant_id'], loan_type, file_type,
+        )
+
+        # Return updated failed records partial
+        failed_records = []
+        for lt in ['RETAIL', 'COMMERCIAL']:
+            for ft in ['credit', 'payment_plan']:
+                c = storage.get_failed_row_count(ctx['tenant_id'], lt, ft)
+                if c > 0:
+                    failed_records.append({
+                        'loan_type': lt,
+                        'file_type': ft,
+                        'count': c,
+                    })
+
+        return render(request, 'partials/failed_records.html', {
+            **ctx, 'failed_records': failed_records,
         })

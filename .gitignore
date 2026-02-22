@@ -1,4 +1,5 @@
 teamsec-interview-data/
+data-test/
 .DS_Store
 *.pdf
 venv/
