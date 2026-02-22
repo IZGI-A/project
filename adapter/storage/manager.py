@@ -118,7 +118,7 @@ class StorageManager:
             'grace_period_months', 'installment_frequency',
             'loan_start_date', 'loan_closing_date',
             'internal_rating', 'external_rating',
-            'loan_product_type', 'loan_status_flag',
+            'loan_product_type',
             'customer_region_code', 'sector_code',
             'internal_credit_rating', 'default_probability',
             'risk_class', 'customer_segment',
@@ -169,7 +169,6 @@ class StorageManager:
             self._to_nullable_uint(record.get('external_rating')),
             # Commercial-only
             self._to_nullable_uint(record.get('loan_product_type')),
-            record.get('loan_status_flag') or None,
             record.get('customer_region_code') or None,
             self._to_nullable_uint(record.get('sector_code')),
             self._to_nullable_uint(record.get('internal_credit_rating')),

@@ -153,8 +153,7 @@ class UploadView(View):
 
         # Columns unique to each type — used to reject wrong file
         COMMERCIAL_ONLY = {'loan_product_type', 'sector_code', 'internal_credit_rating',
-                           'default_probability', 'risk_class', 'customer_segment',
-                           'loan_status_flag'}
+                           'default_probability', 'risk_class', 'customer_segment'}
         RETAIL_ONLY = {'insurance_included', 'customer_district_code',
                        'customer_province_code'}
         CREDIT_ONLY = {'customer_id', 'customer_type', 'original_loan_amount',

@@ -23,14 +23,34 @@ class ProfilingEngine:
         'grace_period_months', 'installment_frequency',
     ]
 
-    CATEGORICAL_FIELDS_CREDIT = [
+    CATEGORICAL_FIELDS_CREDIT_COMMON = [
         'customer_type', 'loan_status_code',
+        'installment_frequency', 'grace_period_months',
+        'internal_rating', 'external_rating',
+    ]
+    CATEGORICAL_FIELDS_CREDIT_RETAIL = [
+        'insurance_included',
+        'customer_district_code', 'customer_province_code',
+    ]
+    CATEGORICAL_FIELDS_CREDIT_COMMERCIAL = [
+        'loan_product_type', 'sector_code', 'risk_class',
+        'customer_segment', 'internal_credit_rating',
+        'customer_region_code',
     ]
 
-    NULLABLE_FIELDS_CREDIT = [
+    NULLABLE_FIELDS_CREDIT_COMMON = [
         'final_maturity_date', 'first_payment_date',
         'loan_start_date', 'loan_closing_date',
         'internal_rating', 'external_rating',
+    ]
+    NULLABLE_FIELDS_CREDIT_RETAIL = [
+        'insurance_included',
+        'customer_district_code', 'customer_province_code',
+    ]
+    NULLABLE_FIELDS_CREDIT_COMMERCIAL = [
+        'loan_product_type', 'customer_region_code',
+        'sector_code', 'internal_credit_rating',
+        'default_probability', 'risk_class', 'customer_segment',
     ]
 
     NUMERIC_FIELDS_PAYMENT = [
@@ -63,8 +83,14 @@ class ProfilingEngine:
 
         if data_type == 'credit':
             numeric_fields = self.NUMERIC_FIELDS_CREDIT
-            categorical_fields = self.CATEGORICAL_FIELDS_CREDIT
-            nullable_fields = self.NULLABLE_FIELDS_CREDIT
+            categorical_fields = list(self.CATEGORICAL_FIELDS_CREDIT_COMMON)
+            nullable_fields = list(self.NULLABLE_FIELDS_CREDIT_COMMON)
+            if loan_type == 'RETAIL':
+                categorical_fields += self.CATEGORICAL_FIELDS_CREDIT_RETAIL
+                nullable_fields += self.NULLABLE_FIELDS_CREDIT_RETAIL
+            else:
+                categorical_fields += self.CATEGORICAL_FIELDS_CREDIT_COMMERCIAL
+                nullable_fields += self.NULLABLE_FIELDS_CREDIT_COMMERCIAL
         else:
             numeric_fields = self.NUMERIC_FIELDS_PAYMENT
             categorical_fields = self.CATEGORICAL_FIELDS_PAYMENT
@@ -143,17 +169,22 @@ class ProfilingEngine:
         stats = {}
         for field in fields:
             query = (
-                f"SELECT {field} AS value, count() AS frequency "
+                f"SELECT toString({field}) AS value, count() AS frequency "
                 f"FROM {table} "
                 f"WHERE loan_type = {{loan_type:String}} "
-                f"GROUP BY {field} "
-                f"ORDER BY frequency DESC"
+                f"GROUP BY value "
+                f"ORDER BY frequency DESC "
+                f"LIMIT 20"
             )
             result = client.query(query, parameters={'loan_type': loan_type})
-            stats[field] = [
-                {'value': row[0], 'frequency': row[1]}
+            values = [
+                {'value': row[0] if row[0] else None, 'frequency': row[1]}
                 for row in result.result_rows
             ]
+            # Skip fields where all values are NULL
+            non_null = [v for v in values if v['value'] is not None]
+            if non_null:
+                stats[field] = values
         return stats
 
     def _get_null_ratios(self, client, table: str, loan_type: str,

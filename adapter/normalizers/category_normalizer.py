@@ -43,10 +43,8 @@ class CategoryNormalizer:
             raw_ins = record.get('insurance_included', '').strip()
             record['insurance_included'] = self.INSURANCE_MAP.get(raw_ins, None)
 
-        # Commercial loan_status_flag
-        if loan_type == 'COMMERCIAL':
-            raw_flag = record.get('loan_status_flag', '').strip()
-            record['loan_status_flag'] = self.STATUS_MAP.get(raw_flag, raw_flag)
+        # Remove loan_status_flag (duplicate of loan_status_code)
+        record.pop('loan_status_flag', None)
 
         return record
 

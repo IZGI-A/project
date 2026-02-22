@@ -45,7 +45,6 @@ CREATE TABLE IF NOT EXISTS fact_credit (
     external_rating                 Nullable(UInt32),
 
     loan_product_type               Nullable(UInt32),
-    loan_status_flag                Nullable(String),
     customer_region_code            Nullable(String),
     sector_code                     Nullable(UInt32),
     internal_credit_rating          Nullable(UInt32),

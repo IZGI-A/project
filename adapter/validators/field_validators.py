@@ -71,7 +71,6 @@ class CreditFieldValidator(BaseValidator):
             self.validate_decimal(result, row, 'default_probability', min_val=0)
             self.validate_integer(result, row, 'risk_class')
             self.validate_integer(result, row, 'customer_segment')
-            self.validate_in_set(result, row, 'loan_status_flag', {'A', 'K'})
 
         return result
 
