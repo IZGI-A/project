@@ -1,36 +1,29 @@
 {% if rows %}
-<div class="p-2 bg-light border-top">
-    <div class="d-flex justify-content-between align-items-center mb-2">
-        <small class="text-muted">Showing {{ showing }} of {{ total }} failed records</small>
-        <button class="btn btn-sm btn-outline-secondary"
-                onclick="this.closest('.bg-light').innerHTML=''"
-                title="Close preview">
-            <i class="bi bi-x"></i> Close
-        </button>
-    </div>
-    <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
-        <table class="table table-sm table-bordered table-striped mb-0" style="font-size: 0.8rem;">
-            <thead class="table-dark">
-                <tr>
-                    {% for col in columns %}
-                    <th class="text-nowrap">{{ col }}</th>
-                    {% endfor %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in rows %}
-                <tr>
-                    {% for val in row %}
-                    <td class="text-nowrap">{{ val }}</td>
-                    {% endfor %}
-                </tr>
+<div class="p-3">
+    <small class="text-muted">Showing {{ showing }} of {{ total }} failed records</small>
+</div>
+<div class="table-responsive">
+    <table class="table table-sm table-bordered table-striped mb-0" style="font-size: 0.8rem;">
+        <thead class="table-dark">
+            <tr>
+                {% for col in columns %}
+                <th class="text-nowrap">{{ col }}</th>
                 {% endfor %}
-            </tbody>
-        </table>
-    </div>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr>
+                {% for val in row %}
+                <td class="text-nowrap">{{ val }}</td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>
 {% else %}
-<div class="p-2 bg-light border-top">
+<div class="p-3">
     <small class="text-muted">No failed records to preview.</small>
 </div>
 {% endif %}

@@ -145,9 +145,54 @@ class UploadView(View):
                 **ctx, 'error': 'All fields are required.',
             })
 
-        records = []
         text_wrapper = io.TextIOWrapper(csv_file, encoding='utf-8')
         reader = csv.DictReader(text_wrapper, delimiter=';')
+
+        # Validate CSV headers match the selected loan_type/file_type
+        headers = set(reader.fieldnames or [])
+
+        # Columns unique to each type — used to reject wrong file
+        COMMERCIAL_ONLY = {'loan_product_type', 'sector_code', 'internal_credit_rating',
+                           'default_probability', 'risk_class', 'customer_segment',
+                           'loan_status_flag'}
+        RETAIL_ONLY = {'insurance_included', 'customer_district_code',
+                       'customer_province_code'}
+        CREDIT_ONLY = {'customer_id', 'customer_type', 'original_loan_amount',
+                       'outstanding_principal_balance'}
+        PAYMENT_ONLY = {'installment_number', 'installment_amount',
+                        'principal_component', 'installment_status'}
+
+        if file_type == 'credit':
+            required = {'loan_account_number', 'customer_id', 'customer_type',
+                        'loan_status_code', 'original_loan_amount',
+                        'outstanding_principal_balance'}
+            if loan_type == 'COMMERCIAL':
+                required |= {'loan_product_type', 'sector_code'}
+                rejected = RETAIL_ONLY
+            else:
+                rejected = COMMERCIAL_ONLY
+        else:
+            required = {'loan_account_number', 'installment_number',
+                        'installment_amount', 'principal_component'}
+            rejected = CREDIT_ONLY
+
+        missing = required - headers
+        if missing:
+            return render(request, 'upload.html', {
+                **ctx,
+                'error': f'This file does not match {loan_type}/{file_type}. '
+                         f'Missing columns: {", ".join(sorted(missing))}',
+            })
+
+        unexpected = rejected & headers
+        if unexpected:
+            return render(request, 'upload.html', {
+                **ctx,
+                'error': f'This file does not match {loan_type}/{file_type}. '
+                         f'Unexpected columns: {", ".join(sorted(unexpected))}',
+            })
+
+        records = []
         for row in reader:
             records.append(dict(row))
 

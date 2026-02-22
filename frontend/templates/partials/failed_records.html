@@ -13,8 +13,10 @@
             <div class="d-flex gap-1">
                 <button class="btn btn-sm btn-outline-secondary"
                         hx-get="{% url 'frontend:failed-preview' %}?loan_type={{ fr.loan_type }}&file_type={{ fr.file_type }}"
-                        hx-target="#preview-{{ fr.loan_type }}-{{ fr.file_type }}"
+                        hx-target="#preview-modal-body"
                         hx-swap="innerHTML"
+                        data-bs-toggle="modal"
+                        data-bs-target="#previewModal"
                         title="Preview failed records">
                     <i class="bi bi-eye"></i> Preview
                 </button>
@@ -35,14 +37,24 @@
             </div>
         </td>
     </tr>
-    <tr>
-        <td colspan="4" class="p-0">
-            <div id="preview-{{ fr.loan_type }}-{{ fr.file_type }}"></div>
-        </td>
-    </tr>
     {% endfor %}
     </tbody>
 </table>
+
+<!-- Preview Modal -->
+<div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">Failed Records Preview</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0" id="preview-modal-body">
+                <div class="text-center py-4 text-muted">Loading...</div>
+            </div>
+        </div>
+    </div>
+</div>
 {% else %}
 <p class="text-muted text-center mb-0 py-3">No failed records</p>
 {% endif %}

@@ -67,8 +67,10 @@ def clear_data(tenant_id=None, loan_type=None, file_type=None):
 # ── Failed records (extbank_failed:) ────────────────────────
 
 def store_failed(tenant_id, loan_type, file_type, records):
-    """Store records that failed during sync."""
-    _redis.set(_failed_key(tenant_id, loan_type, file_type), json.dumps(records))
+    """Append records to existing failed records."""
+    existing = get_failed(tenant_id, loan_type, file_type)
+    existing.extend(records)
+    _redis.set(_failed_key(tenant_id, loan_type, file_type), json.dumps(existing))
 
 
 def get_failed(tenant_id, loan_type, file_type):
