@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Upload CSV - {{ tenant_name }}{% endblock %}
+
+{% block content %}
+<h4 class="mb-4">Upload CSV to External Bank</h4>
+
+{% if success %}
+<div class="alert alert-success alert-dismissible fade show">
+    <i class="bi bi-check-circle"></i> {{ success }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+{% if error %}
+<div class="alert alert-danger alert-dismissible fade show">
+    <i class="bi bi-exclamation-circle"></i> {{ error }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+<div class="card" style="max-width: 600px;">
+    <div class="card-body">
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            <div class="mb-3">
+                <label class="form-label">Loan Type</label>
+                <select name="loan_type" class="form-select" required>
+                    <option value="">Select...</option>
+                    <option value="RETAIL">Retail</option>
+                    <option value="COMMERCIAL">Commercial</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">File Type</label>
+                <select name="file_type" class="form-select" required>
+                    <option value="">Select...</option>
+                    <option value="credit">Credit</option>
+                    <option value="payment_plan">Payment Plan</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">CSV File</label>
+                <input type="file" name="file" class="form-control" accept=".csv" required>
+                <div class="form-text">Semicolon (;) delimited CSV file</div>
+            </div>
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-cloud-upload"></i> Upload
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

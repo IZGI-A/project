@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Profiling - {{ tenant_name }}{% endblock %}
+
+{% block content %}
+<h4 class="mb-4">Data Profiling</h4>
+
+<!-- Filters -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="d-flex gap-3 align-items-center">
+            <div>
+                <select name="loan_type" class="form-select form-select-sm">
+                    <option value="RETAIL" {% if loan_type == "RETAIL" %}selected{% endif %}>Retail</option>
+                    <option value="COMMERCIAL" {% if loan_type == "COMMERCIAL" %}selected{% endif %}>Commercial</option>
+                </select>
+            </div>
+            <div>
+                <select name="data_type" class="form-select form-select-sm">
+                    <option value="credit" {% if data_type == "credit" %}selected{% endif %}>Credits</option>
+                    <option value="payment" {% if data_type == "payment" %}selected{% endif %}>Payments</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-sm btn-primary">
+                <i class="bi bi-bar-chart"></i> Profile
+            </button>
+            <span class="text-muted ms-auto">Rows: {{ profile.row_count|default:"0" }}</span>
+        </form>
+    </div>
+</div>
+
+{% if profile.row_count %}
+<!-- Numeric Stats -->
+<div class="card mb-3">
+    <div class="card-header"><h6 class="mb-0">Numeric Field Statistics</h6></div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-striped mb-0">
+                <thead class="table-dark">
+                    <tr><th>Field</th><th>Min</th><th>Max</th><th>Avg</th><th>Std Dev</th><th>Zero/Null Ratio</th></tr>
+                </thead>
+                <tbody>
+                {% for field, stats in profile.numeric_stats.items %}
+                <tr>
+                    <td><strong>{{ field }}</strong></td>
+                    <td>{{ stats.min|floatformat:2 }}</td>
+                    <td>{{ stats.max|floatformat:2 }}</td>
+                    <td>{{ stats.avg|floatformat:2 }}</td>
+                    <td>{{ stats.stddev|floatformat:2 }}</td>
+                    <td>
+                        <div class="progress" style="height: 16px; width: 100px;">
+                            <div class="progress-bar {% if stats.zero_or_null_ratio > 0.5 %}bg-danger{% elif stats.zero_or_null_ratio > 0.1 %}bg-warning{% else %}bg-success{% endif %}"
+                                 style="width: {{ stats.zero_or_null_ratio|floatformat:0 }}%">
+                                {{ stats.zero_or_null_ratio|floatformat:2 }}
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Charts Row -->
+<div class="row g-3 mb-3">
+    <!-- Categorical Distribution -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header"><h6 class="mb-0">Categorical Distribution</h6></div>
+            <div class="card-body">
+                {% for field, values in profile.categorical_stats.items %}
+                <h6 class="text-muted">{{ field }}</h6>
+                <canvas id="chart-{{ field }}" height="200"></canvas>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Null Ratios -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header"><h6 class="mb-0">Null Ratios</h6></div>
+            <div class="card-body">
+                <canvas id="chart-nulls" height="300"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> No data available for profiling. Run a sync first.
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if profile.row_count %}
+<script>
+const profileData = {{ profile_json|safe }};
+
+// Categorical charts
+if (profileData.categorical_stats) {
+    Object.entries(profileData.categorical_stats).forEach(([field, values]) => {
+        const ctx = document.getElementById('chart-' + field);
+        if (!ctx) return;
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: values.map(v => v.value),
+                datasets: [{
+                    data: values.map(v => v.frequency),
+                    backgroundColor: ['#0d6efd', '#198754', '#ffc107', '#dc3545', '#6f42c1', '#0dcaf0'],
+                }]
+            },
+            options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+        });
+    });
+}
+
+// Null ratios chart
+if (profileData.null_ratios) {
+    const nullCtx = document.getElementById('chart-nulls');
+    if (nullCtx) {
+        const labels = Object.keys(profileData.null_ratios);
+        const data = Object.values(profileData.null_ratios).map(v => (v * 100).toFixed(1));
+        new Chart(nullCtx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Null %',
+                    data: data,
+                    backgroundColor: data.map(v => v > 50 ? '#dc3545' : v > 10 ? '#ffc107' : '#198754'),
+                }]
+            },
+            options: {
+                responsive: true,
+                indexAxis: 'y',
+                scales: { x: { beginAtZero: true, max: 100, title: { display: true, text: '%' } } },
+                plugins: { legend: { display: false } }
+            }
+        });
+    }
+}
+</script>
+{% endif %}
+{% endblock %}
