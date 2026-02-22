@@ -138,6 +138,29 @@ CORS_ALLOW_ALL_ORIGINS = DEBUG
 CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
 
+# Redis Cache (DB 2 — separate from Celery DB 0 and staging DB 1)
+REDIS_HOST = os.environ.get('REDIS_HOST', 'localhost')
+REDIS_PORT = os.environ.get('REDIS_PORT', '6379')
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': f'redis://{REDIS_HOST}:{REDIS_PORT}/2',
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'SERIALIZER': 'django_redis.serializers.json.JSONSerializer',
+            'SOCKET_CONNECT_TIMEOUT': 2,
+            'SOCKET_TIMEOUT': 2,
+            'RETRY_ON_TIMEOUT': True,
+            'CONNECTION_POOL_KWARGS': {
+                'max_connections': 50,
+            },
+        },
+        'KEY_PREFIX': 'findata',
+        'TIMEOUT': 300,
+    },
+}
+
 # File upload
 DATA_UPLOAD_MAX_MEMORY_SIZE = 250 * 1024 * 1024  # 250MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 250 * 1024 * 1024

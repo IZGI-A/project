@@ -2,6 +2,7 @@
 import logging
 
 from adapter.clickhouse_manager import get_clickhouse_client
+from core.cache import cache_get, cache_set, existing_loans_key, TTL_EXISTING_LOANS
 from .base import ValidationResult, BatchValidationResult
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,13 @@ class CrossFileValidator:
 
     def _get_existing_loans(self, ch_database: str, loan_type: str) -> set:
         """Fetch existing loan_account_numbers from ClickHouse fact_credit."""
+        tenant_id = ch_database.replace('_dw', '').upper()
+        key = existing_loans_key(tenant_id, loan_type)
+
+        cached = cache_get(key)
+        if cached is not None:
+            return set(cached)
+
         try:
             client = get_clickhouse_client(database=ch_database)
             query_result = client.query(
@@ -67,7 +75,9 @@ class CrossFileValidator:
                 "WHERE loan_type = {loan_type:String}",
                 parameters={'loan_type': loan_type},
             )
-            return {row[0] for row in query_result.result_rows}
+            loan_set = {row[0] for row in query_result.result_rows}
+            cache_set(key, list(loan_set), TTL_EXISTING_LOANS)
+            return loan_set
         except Exception as e:
             logger.warning(
                 "Could not fetch existing loans from ClickHouse (%s): %s. "
