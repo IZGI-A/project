@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Sync - {{ tenant_name }}{% endblock %}
+
+{% block content %}
+<h4 class="mb-4">Sync Management</h4>
+
+<!-- Sync Trigger -->
+<div class="row g-3 mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><h6 class="mb-0">Trigger Sync</h6></div>
+            <div class="card-body">
+                <div class="d-flex gap-2">
+                    <button class="btn btn-primary"
+                            hx-post="{% url 'frontend:sync-trigger' %}"
+                            hx-vals='{"loan_type": "RETAIL"}'
+                            hx-target="#sync-logs"
+                            hx-swap="innerHTML"
+                            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+                        <i class="bi bi-play-fill"></i> Sync RETAIL
+                    </button>
+                    <button class="btn btn-success"
+                            hx-post="{% url 'frontend:sync-trigger' %}"
+                            hx-vals='{"loan_type": "COMMERCIAL"}'
+                            hx-target="#sync-logs"
+                            hx-swap="innerHTML"
+                            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+                        <i class="bi bi-play-fill"></i> Sync COMMERCIAL
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Configurations -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><h6 class="mb-0">Configurations</h6></div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead><tr><th>Loan Type</th><th>URL</th><th>Interval</th><th>Status</th></tr></thead>
+                    <tbody>
+                    {% for c in configs %}
+                    <tr>
+                        <td>{{ c.loan_type }}</td>
+                        <td class="text-truncate" style="max-width: 200px;">{{ c.external_bank_url }}</td>
+                        <td>{{ c.sync_interval_minutes }}m</td>
+                        <td>
+                            <span class="badge {% if c.last_sync_status == 'COMPLETED' %}bg-success{% elif c.last_sync_status == 'FAILED' %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {{ c.last_sync_status }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="4" class="text-muted text-center">No configurations</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Sync Logs -->
+<div class="card">
+    <div class="card-header"><h6 class="mb-0">Sync History</h6></div>
+    <div class="card-body p-0" id="sync-logs">
+        {% include "partials/sync_logs.html" %}
+    </div>
+</div>
+{% endblock %}

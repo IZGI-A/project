@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - {{ tenant_name }}{% endblock %}
+
+{% block content %}
+<h4 class="mb-4">Dashboard</h4>
+
+<!-- Stats Cards -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card stat-card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title opacity-75">Retail Credits</h6>
+                        <h3>{{ ch_stats.RETAIL_credit|default:"0" }}</h3>
+                    </div>
+                    <i class="bi bi-person fs-1 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title opacity-75">Commercial Credits</h6>
+                        <h3>{{ ch_stats.COMMERCIAL_credit|default:"0" }}</h3>
+                    </div>
+                    <i class="bi bi-building fs-1 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title opacity-75">Retail Payments</h6>
+                        <h3>{{ ch_stats.RETAIL_payment|default:"0" }}</h3>
+                    </div>
+                    <i class="bi bi-credit-card fs-1 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card bg-warning text-dark">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title opacity-75">Commercial Payments</h6>
+                        <h3>{{ ch_stats.COMMERCIAL_payment|default:"0" }}</h3>
+                    </div>
+                    <i class="bi bi-cash-stack fs-1 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Sync Configurations -->
+<div class="row g-3 mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><h6 class="mb-0">Sync Configurations</h6></div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead><tr><th>Loan Type</th><th>Status</th><th>Last Sync</th><th>Enabled</th></tr></thead>
+                    <tbody>
+                    {% for c in configs %}
+                    <tr>
+                        <td>{{ c.loan_type }}</td>
+                        <td>
+                            <span class="badge {% if c.last_sync_status == 'COMPLETED' %}bg-success{% elif c.last_sync_status == 'FAILED' %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {{ c.last_sync_status }}
+                            </span>
+                        </td>
+                        <td>{{ c.last_sync_at|default:"-" }}</td>
+                        <td>{% if c.is_enabled %}<i class="bi bi-check-circle text-success"></i>{% else %}<i class="bi bi-x-circle text-danger"></i>{% endif %}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="4" class="text-muted text-center">No configurations</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Sync Logs -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><h6 class="mb-0">Recent Sync Logs</h6></div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead><tr><th>Type</th><th>Status</th><th>Credits</th><th>Payments</th><th>Errors</th></tr></thead>
+                    <tbody>
+                    {% for log in recent_logs %}
+                    <tr>
+                        <td>{{ log.loan_type }}</td>
+                        <td>
+                            <span class="badge {% if log.status == 'COMPLETED' %}bg-success{% elif log.status == 'FAILED' %}bg-danger{% else %}bg-info{% endif %}">
+                                {{ log.status }}
+                            </span>
+                        </td>
+                        <td>{{ log.valid_credit_rows }}/{{ log.total_credit_rows }}</td>
+                        <td>{{ log.valid_payment_rows }}/{{ log.total_payment_rows }}</td>
+                        <td>{% if log.error_count > 0 %}<span class="text-danger">{{ log.error_count }}</span>{% else %}0{% endif %}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="5" class="text-muted text-center">No sync history</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

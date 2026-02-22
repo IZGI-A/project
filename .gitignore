@@ -1,0 +1,14 @@
+teamsec-interview-data/
+.DS_Store
+*.pdf
+venv/
+__pycache__/
+*.pyc
+*.pyo
+db.sqlite3
+.env
+staticfiles/
+*.egg-info/
+.pytest_cache/
+.coverage
+CLAUDE.md

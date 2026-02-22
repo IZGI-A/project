@@ -32,7 +32,8 @@ CREATE TABLE tenants (
     id              SERIAL PRIMARY KEY,
     tenant_id       VARCHAR(20) UNIQUE NOT NULL,    -- 'BANK001', 'BANK002', 'BANK003'
     name            VARCHAR(100) NOT NULL,
-    api_key         VARCHAR(255) UNIQUE NOT NULL,    -- JWT authentication icin
+    api_key_hash    VARCHAR(255) NOT NULL,           -- Hash'lenmis API key (plain text DEGIL)
+    api_key_prefix  VARCHAR(8) NOT NULL,             -- "sk_live_a..." (tanimlama icin ilk 8 karakter)
     pg_database     VARCHAR(50) NOT NULL,            -- 'bank001_ops'
     ch_database     VARCHAR(50) NOT NULL,            -- 'bank001_dw'
     is_active       BOOLEAN DEFAULT TRUE,
