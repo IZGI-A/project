@@ -14,19 +14,31 @@ logger = logging.getLogger(__name__)
 class ProfilingEngine:
     """Runs profiling queries against ClickHouse fact tables."""
 
+    # Meta fields excluded from completeness analysis
+    META_FIELDS = ['batch_id', 'loan_type', 'loaded_at']
+
+    # Loan-type specific columns (used to exclude irrelevant fields)
+    RETAIL_ONLY_FIELDS = {
+        'insurance_included', 'customer_district_code', 'customer_province_code',
+    }
+    COMMERCIAL_ONLY_FIELDS = {
+        'loan_product_type', 'customer_region_code', 'sector_code',
+        'internal_credit_rating', 'default_probability',
+        'risk_class', 'customer_segment',
+    }
+
     NUMERIC_FIELDS_CREDIT = [
         'days_past_due', 'total_installment_count',
         'outstanding_installment_count', 'paid_installment_count',
         'original_loan_amount', 'outstanding_principal_balance',
         'nominal_interest_rate', 'total_interest_amount',
         'kkdf_rate', 'kkdf_amount', 'bsmv_rate', 'bsmv_amount',
-        'grace_period_months', 'installment_frequency',
+        'internal_rating', 'external_rating',
     ]
 
     CATEGORICAL_FIELDS_CREDIT_COMMON = [
         'customer_type', 'loan_status_code',
         'installment_frequency', 'grace_period_months',
-        'internal_rating', 'external_rating',
     ]
     CATEGORICAL_FIELDS_CREDIT_RETAIL = [
         'insurance_included',
@@ -109,6 +121,9 @@ class ProfilingEngine:
             'null_ratios': self._get_null_ratios(
                 client, table, loan_type, nullable_fields,
             ),
+            'completeness': self._get_completeness(
+                client, table, loan_type, data_type, numeric_fields,
+            ),
         }
 
         return result
@@ -168,13 +183,13 @@ class ProfilingEngine:
                                fields: list) -> dict:
         stats = {}
         for field in fields:
+            # Get all values (no limit)
             query = (
                 f"SELECT toString({field}) AS value, count() AS frequency "
                 f"FROM {table} "
                 f"WHERE loan_type = {{loan_type:String}} "
                 f"GROUP BY value "
-                f"ORDER BY frequency DESC "
-                f"LIMIT 20"
+                f"ORDER BY frequency DESC"
             )
             result = client.query(query, parameters={'loan_type': loan_type})
             values = [
@@ -184,7 +199,10 @@ class ProfilingEngine:
             # Skip fields where all values are NULL
             non_null = [v for v in values if v['value'] is not None]
             if non_null:
-                stats[field] = values
+                stats[field] = {
+                    'unique_count': len(non_null),
+                    'values': values,
+                }
         return stats
 
     def _get_null_ratios(self, client, table: str, loan_type: str,
@@ -210,6 +228,69 @@ class ProfilingEngine:
         for i, field in enumerate(fields):
             ratios[field] = round(self._to_float(row[i + 1]), 4)
         return ratios
+
+    def _get_completeness(self, client, table: str, loan_type: str,
+                          data_type: str, numeric_fields: list) -> dict:
+        """Get missing data ratio for non-numeric fields, filtered by loan type."""
+        # Get all columns from the table
+        col_result = client.query(
+            "SELECT name, type FROM system.columns "
+            "WHERE database = currentDatabase() AND table = {table:String} "
+            "ORDER BY position",
+            parameters={'table': table},
+        )
+        if not col_result.result_rows:
+            return {}
+
+        # Determine which fields to exclude (loan-type specific)
+        exclude = set(self.META_FIELDS) | set(numeric_fields)
+        if data_type == 'credit':
+            if loan_type == 'RETAIL':
+                exclude |= self.COMMERCIAL_ONLY_FIELDS
+            else:
+                exclude |= self.RETAIL_ONLY_FIELDS
+
+        columns = []
+        for name, col_type in col_result.result_rows:
+            if name in exclude:
+                continue
+            columns.append((name, col_type))
+
+        if not columns:
+            return {}
+
+        # Build query: for each column check null/empty based on type
+        select_parts = ["count()"]
+        for name, col_type in columns:
+            if 'Nullable' in col_type:
+                select_parts.append(f"countIf(isNull({name}))")
+            elif 'String' in col_type:
+                select_parts.append(f"countIf({name} = '')")
+            else:
+                # Non-nullable numeric: always filled, missing = 0
+                select_parts.append("0")
+
+        query = (
+            f"SELECT {', '.join(select_parts)} "
+            f"FROM {table} "
+            f"WHERE loan_type = {{loan_type:String}}"
+        )
+        result = client.query(query, parameters={'loan_type': loan_type})
+        if not result.result_rows:
+            return {}
+
+        row = result.result_rows[0]
+        total = row[0] if row[0] else 1
+        completeness = {}
+        for i, (name, col_type) in enumerate(columns):
+            missing = row[i + 1]
+            completeness[name] = {
+                'missing_count': missing,
+                'missing_pct': round((missing / total) * 100, 2) if total else 0,
+                'filled_pct': round(((total - missing) / total) * 100, 2) if total else 0,
+                'total': total,
+            }
+        return completeness
 
     @staticmethod
     def _to_float(value):

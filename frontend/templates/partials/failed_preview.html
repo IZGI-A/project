@@ -1,10 +1,10 @@
 {% if rows %}
 <div class="p-3">
-    <small class="text-muted">Showing {{ showing }} of {{ total }} failed records</small>
+    <small class="text-secondary">Showing {{ showing }} of {{ total }} failed records</small>
 </div>
 <div class="table-responsive">
-    <table class="table table-sm table-bordered table-striped mb-0" style="font-size: 0.8rem;">
-        <thead class="table-dark">
+    <table class="table table-glass table-hover" style="font-size: 0.8rem;">
+        <thead>
             <tr>
                 {% for col in columns %}
                 <th class="text-nowrap">{{ col }}</th>
@@ -24,6 +24,6 @@
 </div>
 {% else %}
 <div class="p-3">
-    <small class="text-muted">No failed records to preview.</small>
+    <small class="text-secondary">No failed records to preview.</small>
 </div>
 {% endif %}
