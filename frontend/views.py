@@ -15,6 +15,12 @@ from adapter.metrics import data_upload_bytes_total
 from adapter.profiling.engine import ProfilingEngine
 from adapter.sync.engine import SyncEngine
 from config.db_router import set_current_tenant_schema, clear_current_tenant_schema
+from core.cache import (
+    cache_get_or_set, sync_configs_key, sync_logs_key,
+    ch_count_key, ch_schema_key, profile_key, validation_errors_key,
+    TTL_SYNC_CONFIG, TTL_SYNC_LOGS, TTL_CH_COUNT, TTL_CH_SCHEMA,
+    TTL_PROFILE, TTL_VALIDATION_ERRORS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,15 +82,24 @@ class DashboardView(View):
         if not ctx:
             return redirect('frontend:login')
 
+        tenant_id = ctx['tenant_id']
         try:
-            configs = list(SyncConfiguration.objects.values(
-                'loan_type', 'is_enabled', 'last_sync_at', 'last_sync_status',
-            ))
-            recent_logs = list(SyncLog.objects.order_by('-started_at')[:10].values(
-                'id', 'loan_type', 'status', 'started_at',
-                'total_credit_rows', 'total_payment_rows',
-                'valid_credit_rows', 'valid_payment_rows', 'error_count',
-            ))
+            configs = cache_get_or_set(
+                sync_configs_key(tenant_id),
+                lambda: list(SyncConfiguration.objects.values(
+                    'loan_type', 'is_enabled', 'last_sync_at', 'last_sync_status',
+                )),
+                TTL_SYNC_CONFIG,
+            )
+            recent_logs = cache_get_or_set(
+                sync_logs_key(tenant_id, 10),
+                lambda: list(SyncLog.objects.order_by('-started_at')[:10].values(
+                    'id', 'loan_type', 'status', 'started_at',
+                    'total_credit_rows', 'total_payment_rows',
+                    'valid_credit_rows', 'valid_payment_rows', 'error_count',
+                )),
+                TTL_SYNC_LOGS,
+            )
 
             # Get row counts from ClickHouse
             ch_stats = {}
@@ -93,12 +108,15 @@ class DashboardView(View):
                 for lt in ['RETAIL', 'COMMERCIAL']:
                     for dt in ['credit', 'payment']:
                         table = f'fact_{dt}'
-                        result = client.query(
-                            f"SELECT count() FROM {table} "
-                            f"WHERE loan_type = {{lt:String}}",
-                            parameters={'lt': lt},
+                        ch_stats[f"{lt}_{dt}"] = cache_get_or_set(
+                            ch_count_key(tenant_id, table, lt),
+                            lambda _lt=lt, _table=table: client.query(
+                                f"SELECT count() FROM {_table} "
+                                f"WHERE loan_type = {{lt:String}}",
+                                parameters={'lt': _lt},
+                            ).result_rows[0][0],
+                            TTL_CH_COUNT,
                         )
-                        ch_stats[f"{lt}_{dt}"] = result.result_rows[0][0]
             except Exception as e:
                 logger.warning("Could not fetch ClickHouse stats: %s", e)
 
@@ -213,9 +231,18 @@ class SyncView(View):
         if not ctx:
             return redirect('frontend:login')
 
+        tenant_id = ctx['tenant_id']
         try:
-            configs = list(SyncConfiguration.objects.all())
-            logs = list(SyncLog.objects.order_by('-started_at')[:20])
+            configs = cache_get_or_set(
+                sync_configs_key(tenant_id),
+                lambda: list(SyncConfiguration.objects.values()),
+                TTL_SYNC_CONFIG,
+            )
+            logs = cache_get_or_set(
+                sync_logs_key(tenant_id, 20),
+                lambda: list(SyncLog.objects.order_by('-started_at')[:20].values()),
+                TTL_SYNC_LOGS,
+            )
         except Exception:
             configs, logs = [], []
         finally:
@@ -336,16 +363,22 @@ class DataViewPage(View):
             client = get_clickhouse_client(database=ctx['ch_database'])
             table = f'fact_{data_type}'
 
-            # Fetch column metadata
-            col_result = client.query(
-                "SELECT name, type FROM system.columns "
-                "WHERE database = currentDatabase() AND table = {t:String} "
-                "ORDER BY position",
-                parameters={'t': table},
+            # Fetch column metadata (cached — schema rarely changes)
+            col_data = cache_get_or_set(
+                ch_schema_key(ctx['tenant_id'], table),
+                lambda: [
+                    (r[0], r[1]) for r in client.query(
+                        "SELECT name, type FROM system.columns "
+                        "WHERE database = currentDatabase() AND table = {t:String} "
+                        "ORDER BY position",
+                        parameters={'t': table},
+                    ).result_rows
+                ],
+                TTL_CH_SCHEMA,
             )
-            all_columns = [r[0] for r in col_result.result_rows]
+            all_columns = [name for name, _ in col_data]
             numeric_columns = [
-                name for name, ctype in col_result.result_rows
+                name for name, ctype in col_data
                 if any(ctype.replace('Nullable(', '').startswith(nt)
                        for nt in self.NUMERIC_TYPE_PREFIXES)
             ]
@@ -406,8 +439,11 @@ class ProfilingPageView(View):
 
         profile = {}
         try:
-            engine = ProfilingEngine(ctx['ch_database'])
-            profile = engine.profile(loan_type, data_type)
+            profile = cache_get_or_set(
+                profile_key(ctx['tenant_id'], loan_type, data_type),
+                lambda: ProfilingEngine(ctx['ch_database']).profile(loan_type, data_type),
+                TTL_PROFILE,
+            )
         except Exception as e:
             logger.warning("Profiling page error: %s", e)
 
@@ -429,12 +465,19 @@ class ErrorsView(View):
         if not ctx:
             return redirect('frontend:login')
 
+        tenant_id = ctx['tenant_id']
         try:
             sync_log_id = request.GET.get('sync_log_id')
             if sync_log_id:
-                errors = list(
-                    ValidationError.objects.filter(sync_log_id=sync_log_id)
-                    .order_by('row_number')[:500]
+                errors = cache_get_or_set(
+                    validation_errors_key(tenant_id, sync_log_id),
+                    lambda: list(
+                        ValidationError.objects.filter(sync_log_id=sync_log_id)
+                        .order_by('row_number')[:500]
+                        .values('row_number', 'file_type', 'field_name',
+                                'error_type', 'error_message', 'raw_value')
+                    ),
+                    TTL_VALIDATION_ERRORS,
                 )
                 sync_log = SyncLog.objects.get(id=sync_log_id)
             else:

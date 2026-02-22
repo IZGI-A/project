@@ -10,6 +10,7 @@ import uuid
 from datetime import timezone, datetime
 
 from adapter.models import SyncLog, SyncConfiguration
+from core.cache import invalidate_after_sync
 from adapter.metrics import (
     sync_operations_total,
     sync_duration_seconds,
@@ -107,6 +108,7 @@ class SyncEngine:
                     loan_type, credit_result, payment_field_result,
                     cross_result, credit_records, payment_records,
                 )
+                invalidate_after_sync(self.tenant_id, loan_type)
                 return sync_log
 
             # 3. NORMALIZE
@@ -160,6 +162,7 @@ class SyncEngine:
 
             # Update sync configuration
             self._update_sync_config(loan_type, 'COMPLETED')
+            invalidate_after_sync(self.tenant_id, loan_type)
 
             logger.info(
                 "Sync completed for %s/%s. Credits: %d/%d, Payments: %d/%d, Errors: %d",
@@ -182,6 +185,7 @@ class SyncEngine:
             sync_duration_seconds.labels(
                 tenant=self.tenant_id, loan_type=loan_type,
             ).observe(time.time() - start_time)
+            invalidate_after_sync(self.tenant_id, loan_type)
             logger.exception("Sync failed for %s/%s: %s", self.tenant_id, loan_type, e)
             return sync_log
 
