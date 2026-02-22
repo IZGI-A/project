@@ -95,6 +95,11 @@ class SyncEngine:
                     sync_log, credit_result, payment_field_result, cross_result,
                     'Error rate exceeds 50%. Aborting sync, old data preserved.',
                 )
+                # Still move failed records from upload to failed store
+                self._cleanup_redis(
+                    loan_type, credit_result, payment_field_result,
+                    cross_result, credit_records, payment_records,
+                )
                 return sync_log
 
             # 3. NORMALIZE
@@ -104,10 +109,20 @@ class SyncEngine:
 
             # 4. STORE
             self._update_status(sync_log, 'STORING')
-            self.storage_manager.store_credits(normalized_credits, loan_type, self.batch_id)
-            self.storage_manager.store_payments(normalized_payments, loan_type, self.batch_id)
 
-            # 5. LOG - success
+            if normalized_credits:
+                self.storage_manager.store_credits(normalized_credits, loan_type, self.batch_id)
+
+            if normalized_payments:
+                self.storage_manager.store_payments(normalized_payments, loan_type, self.batch_id)
+
+            # 5. Clean up Redis - move failed records to failed store
+            self._cleanup_redis(
+                loan_type, credit_result, payment_field_result,
+                cross_result, credit_records, payment_records,
+            )
+
+            # 6. LOG - success
             sync_log.status = 'COMPLETED'
             sync_log.valid_credit_rows = total_valid_credit
             sync_log.valid_payment_rows = total_valid_payment
@@ -242,6 +257,57 @@ class SyncEngine:
 
         if errors_to_create:
             VE.objects.bulk_create(errors_to_create, batch_size=1000)
+
+    def _cleanup_redis(self, loan_type, credit_result, payment_field_result,
+                       cross_result, original_credits, original_payments):
+        """
+        After sync, always clear upload keys (extbank:).
+        Move failed records to the failed store (extbank_failed:).
+        """
+        from external_bank import storage
+
+        # Credits
+        if original_credits:
+            storage.clear_data(self.tenant_id, loan_type, 'credit')
+
+            if credit_result.error_count > 0:
+                failed_row_numbers = set(e['row_number'] for e in credit_result.errors)
+                failed_credits = [
+                    original_credits[i - 1] for i in failed_row_numbers
+                    if i - 1 < len(original_credits)
+                ]
+                storage.store_failed(self.tenant_id, loan_type, 'credit', failed_credits)
+                logger.info(
+                    "Redis: %s/%s/credit - %d failed rows moved to failed store",
+                    self.tenant_id, loan_type, len(failed_credits),
+                )
+            else:
+                storage.clear_failed(self.tenant_id, loan_type, 'credit')
+                logger.info("Redis: %s/%s/credit - all valid, cleared", self.tenant_id, loan_type)
+
+        # Payments
+        if original_payments:
+            storage.clear_data(self.tenant_id, loan_type, 'payment_plan')
+
+            failed_payment_rows = set()
+            for e in payment_field_result.errors:
+                failed_payment_rows.add(e['row_number'])
+            for e in cross_result.errors:
+                failed_payment_rows.add(e['row_number'])
+
+            if failed_payment_rows:
+                failed_payments = [
+                    original_payments[i - 1] for i in failed_payment_rows
+                    if i - 1 < len(original_payments)
+                ]
+                storage.store_failed(self.tenant_id, loan_type, 'payment_plan', failed_payments)
+                logger.info(
+                    "Redis: %s/%s/payment_plan - %d failed rows moved to failed store",
+                    self.tenant_id, loan_type, len(failed_payments),
+                )
+            else:
+                storage.clear_failed(self.tenant_id, loan_type, 'payment_plan')
+                logger.info("Redis: %s/%s/payment_plan - all valid, cleared", self.tenant_id, loan_type)
 
     def _update_status(self, sync_log, status):
         sync_log.status = status
