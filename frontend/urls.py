@@ -5,6 +5,7 @@ from .views import (
     SyncView, SyncTriggerView, DataViewPage,
     ProfilingPageView, ErrorsView,
     FailedRecordsPreviewView, FailedRecordsDownloadView, FailedRecordsDismissView,
+    SettingsView,
 )
 
 app_name = 'frontend'
@@ -22,4 +23,5 @@ urlpatterns = [
     path('data/', DataViewPage.as_view(), name='data-view'),
     path('profiling/', ProfilingPageView.as_view(), name='profiling'),
     path('errors/', ErrorsView.as_view(), name='errors'),
+    path('settings/', SettingsView.as_view(), name='settings'),
 ]
