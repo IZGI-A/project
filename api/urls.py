@@ -14,7 +14,7 @@ urlpatterns = [
     path('sync/configs/<int:pk>/', SyncConfigDetailView.as_view(), name='sync-config-detail'),
 
     # Sync trigger
-    path('sync/trigger/', SyncTriggerView.as_view(), name='sync-trigger'),
+    path('sync/', SyncTriggerView.as_view(), name='sync-trigger'),
 
     # Sync logs
     path('sync/logs/', SyncLogListView.as_view(), name='sync-log-list'),

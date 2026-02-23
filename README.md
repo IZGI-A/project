@@ -1,6 +1,6 @@
 # Financial Data Integration Adapter
 
-Multi-tenant financial data integration platform. Banks upload loan portfolio CSV files, system validates, normalizes and stores data in a ClickHouse data warehouse. Includes automated sync orchestration, real-time profiling, monitoring dashboards and a web UI.
+Multi-tenant financial data integration platform. Banks upload loan portfolio CSV files, system validates, normalizes and stores data in a ClickHouse data warehouse. Includes automated sync with Celery Beat, real-time profiling, monitoring dashboards and a web UI.
 
 ## Tech Stack
 
@@ -10,7 +10,7 @@ Multi-tenant financial data integration platform. Banks upload loan portfolio CS
 | Operational DB | PostgreSQL 16 |
 | Data Warehouse | ClickHouse |
 | Cache / Storage | Redis 7 |
-| Orchestration | Apache Airflow 2.10 |
+| Task Queue | Celery + Celery Beat |
 | Web Server | Gunicorn |
 | Monitoring | Prometheus + Grafana |
 | Frontend | Django Templates + HTMX + Chart.js |
@@ -34,8 +34,8 @@ Multi-tenant financial data integration platform. Banks upload loan portfolio CS
     └───────────┘ └───────────┘ └──────────┘
           │
     ┌─────▼──────────────────────────────┐
-    │         Airflow :8080              │
-    │  sync_dag (60 dk) + profiling_dag  │
+    │  Celery Beat (60s polling)         │
+    │  → check_and_sync → run_sync      │
     └────────────────────────────────────┘
           │
     ┌─────▼──────────────────────────────┐
@@ -49,7 +49,7 @@ Multi-tenant financial data integration platform. Banks upload loan portfolio CS
 
 - **Docker** ve **Docker Compose** yuklu olmali
 - Minimum 4 GB RAM (tum servisler icin)
-- Portlar musait olmali: 8000, 8080, 8123, 5432, 6379, 3000, 9090
+- Portlar musait olmali: 8000, 8123, 5432, 6379, 3000, 9090
 
 ## Quick Start
 
@@ -119,6 +119,22 @@ for t in Tenant.objects.all().order_by('tenant_id'):
 2. API key ile giris yap
 3. Dashboard sayfasi acilir
 
+## Automated Sync (Celery Beat)
+
+Celery Beat her 60 saniyede bir Redis'i kontrol eder. Yeni veri yuklenmisse otomatik sync baslatir.
+
+```
+Celery Beat (her 60s)
+  → check_and_sync: Redis'te yeni veri var mi?
+    → Varsa: run_sync(tenant_id, loan_type) dispatch et
+      → SyncEngine.sync() pipeline'i calistirir
+```
+
+Celery loglarini izlemek icin:
+```bash
+docker compose logs -f celery-worker
+```
+
 ## Test Verisi Yukleme
 
 ### Yontem 1: Web UI'dan
@@ -126,7 +142,7 @@ for t in Tenant.objects.all().order_by('tenant_id'):
 1. **Upload CSV** sayfasina git
 2. Loan Type (RETAIL/COMMERCIAL) ve File Type (credit/payment_plan) sec
 3. CSV dosyasini yukle (delimiter: `;`)
-4. **Sync** sayfasina gidip ilgili loan type icin "Sync" butonuna tikla
+4. 60 saniye icinde Celery otomatik sync yapacak, veya **Sync** sayfasindan manuel tetikle
 
 ### Yontem 2: Management komutu ile
 
@@ -142,15 +158,15 @@ docker compose exec web python manage.py load_csv \
   --file data-test/BANK001/RETAIL/retail_credit.csv
 ```
 
-Yukleme sonrasi sync tetikle:
+Yukleme sonrasi sync tetikle (manuel):
 
 ```bash
 # Web UI'dan: Sync sayfasi → "Sync" butonu
 # veya API ile:
-curl -X POST http://localhost:8000/api/sync/trigger/ \
+curl -X POST http://localhost:8000/api/sync/ \
   -H "Authorization: Api-Key sk_live_YOUR_KEY_HERE" \
   -H "Content-Type: application/json" \
-  -d '{"loan_type": "RETAIL"}'
+  -d '{"tenant_id": "BANK001", "loan_type": "RETAIL"}'
 ```
 
 ## Web UI Sayfalari
@@ -173,8 +189,8 @@ Tum API istekleri `Authorization: Api-Key sk_live_...` header'i gerektirir.
 
 ```bash
 # Sync tetikle
-POST /api/sync/trigger/
-Body: {"loan_type": "RETAIL"}
+POST /api/sync/
+Body: {"tenant_id": "BANK001", "loan_type": "RETAIL"}
 
 # Sync konfigurasyonlari
 GET /api/sync/configs/
@@ -190,14 +206,14 @@ GET /api/sync/logs/{uuid}/
 
 ```bash
 # Kredi/odeme verileri
-GET /api/data/?loan_type=RETAIL&data_type=credit
+GET /api/data/?tenant_id=BANK001&loan_type=RETAIL&data_type=credit
 ```
 
 ### Profiling
 
 ```bash
 # Veri profili (min, max, avg, stddev, null ratios)
-GET /api/profiling/?loan_type=RETAIL&data_type=credit
+GET /api/profiling/?tenant_id=BANK001&loan_type=RETAIL&data_type=credit
 ```
 
 ### Validation Errors
@@ -225,15 +241,6 @@ CSV Upload → Redis (staging) → Fetch → Validate → Normalize → ClickHou
 ### Storage (ClickHouse)
 - Atomic replacement: `REPLACE PARTITION` ile veri degisimi
 - Ayni loan type icin yeni yukleme eskisinin yerine gecer (append degil)
-
-## Airflow DAG'lari
-
-| DAG | Schedule | Aciklama |
-|-----|----------|----------|
-| `financial_data_sync` | Her 60 dk | 3 tenant x 2 loan type = 6 sync task |
-| `financial_data_profiling` | Her 6 saat | 3 tenant icin profiling health check |
-
-Airflow UI: `http://localhost:8080` (admin/admin)
 
 ## Monitoring
 
@@ -269,10 +276,11 @@ Metrik kaynaklari:
 | Servis | Port | Aciklama |
 |--------|------|----------|
 | web | 8000 | Django web uygulamasi |
+| celery-worker | — | Celery task worker |
+| celery-beat | — | Celery Beat scheduler (60s polling) |
 | db | 5432 | PostgreSQL |
 | clickhouse | 8123 | ClickHouse HTTP |
-| redis | 6379 | Redis |
-| airflow-webserver | 8080 | Airflow UI |
+| redis | 6379 | Redis (DB0: Celery, DB1: staging, DB2: cache) |
 | prometheus | 9090 | Prometheus |
 | grafana | 3000 | Grafana |
 | cadvisor | 8081 | Container metrikleri |
@@ -285,6 +293,7 @@ Metrik kaynaklari:
 project/
 ├── adapter/                 # Core integration logic
 │   ├── models.py           # Tenant, SyncLog, SyncConfiguration, ValidationError
+│   ├── tasks.py            # Celery tasks (check_and_sync, run_sync)
 │   ├── validators/         # Field + cross-file validation
 │   ├── normalizers/        # Date, rate, category normalization
 │   ├── storage/            # ClickHouse atomic replacement
@@ -302,8 +311,10 @@ project/
 │   └── storage.py          # Redis gzip storage
 ├── core/                   # Shared utilities
 │   └── cache.py            # Redis cache layer
-├── airflow/dags/           # Airflow DAG definitions
-├── config/                 # Django settings
+├── config/                 # Django settings + Celery app
+│   ├── settings.py
+│   ├── celery.py           # Celery app + beat schedule
+│   └── urls.py
 ├── infrastructure/         # Monitoring configs
 │   ├── prometheus/
 │   ├── grafana/
@@ -313,17 +324,15 @@ project/
 ├── tests/                  # Test suite
 ├── docker-compose.yml      # Local development
 ├── docker-compose.hub.yml  # Docker Hub images
-├── Dockerfile              # Django app
-└── Dockerfile.airflow      # Airflow
+└── Dockerfile              # Django app + Celery
 ```
 
 ## Docker Hub
 
-Image'lar Docker Hub'da mevcut:
+Image Docker Hub'da mevcut:
 
 ```bash
 docker pull whale99/findata-web:latest
-docker pull whale99/findata-airflow:latest
 ```
 
 ## Yararli Komutlar
@@ -331,6 +340,7 @@ docker pull whale99/findata-airflow:latest
 ```bash
 # Loglari izle
 docker compose logs -f web
+docker compose logs -f celery-worker
 
 # Django shell
 docker compose exec web python manage.py shell

@@ -1,30 +1,25 @@
 version: '3.8'
 
-x-airflow-common: &airflow-common
-  image: whale99/findata-airflow:latest
-  environment:
-    - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-    - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://postgres:postgres@db:5432/airflow_db
-    - AIRFLOW__CORE__FERNET_KEY=ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=
-    - AIRFLOW__CORE__LOAD_EXAMPLES=False
-    - AIRFLOW__CORE__DAGS_FOLDER=/opt/airflow/project/airflow/dags
-    - DJANGO_SETTINGS_MODULE=config.settings
-    - PG_HOST=db
-    - PG_PORT=5432
-    - PG_USER=postgres
-    - PG_PASSWORD=postgres
-    - CLICKHOUSE_HOST=clickhouse
-    - CLICKHOUSE_PORT=8123
-    - REDIS_HOST=redis
-  volumes:
-    - airflow_logs:/opt/airflow/logs
-  depends_on:
-    db:
-      condition: service_healthy
-    clickhouse:
-      condition: service_healthy
-    redis:
-      condition: service_started
+x-common-env: &common-env
+  - DJANGO_SECRET_KEY=change-this-in-production
+  - DJANGO_DEBUG=True
+  - PG_HOST=db
+  - PG_PORT=5432
+  - PG_USER=postgres
+  - PG_PASSWORD=postgres
+  - CLICKHOUSE_HOST=clickhouse
+  - CLICKHOUSE_PORT=8123
+  - CELERY_BROKER_URL=redis://redis:6379/0
+  - CELERY_RESULT_BACKEND=redis://redis:6379/0
+  - REDIS_HOST=redis
+
+x-common-depends: &common-depends
+  db:
+    condition: service_healthy
+  clickhouse:
+    condition: service_healthy
+  redis:
+    condition: service_started
 
 services:
   # ========== Django Web Application ==========
@@ -40,22 +35,28 @@ services:
       "
     ports:
       - "8000:8000"
-    environment:
-      - DJANGO_SECRET_KEY=change-this-in-production
-      - DJANGO_DEBUG=True
-      - PG_HOST=db
-      - PG_PORT=5432
-      - PG_USER=postgres
-      - PG_PASSWORD=postgres
-      - CLICKHOUSE_HOST=clickhouse
-      - CLICKHOUSE_PORT=8123
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - REDIS_HOST=redis
+    environment: *common-env
+    depends_on: *common-depends
+
+  # ========== Celery Worker ==========
+  celery-worker:
+    image: whale99/findata-web:latest
+    command: celery -A config worker -l info
+    environment: *common-env
     depends_on:
-      db:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
+      web:
+        condition: service_started
+      redis:
+        condition: service_started
+
+  # ========== Celery Beat (Scheduler) ==========
+  celery-beat:
+    image: whale99/findata-web:latest
+    command: celery -A config beat -l info
+    environment: *common-env
+    depends_on:
+      web:
+        condition: service_started
       redis:
         condition: service_started
 
@@ -100,31 +101,6 @@ services:
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
-
-  # ========== Airflow Webserver ==========
-  airflow-webserver:
-    <<: *airflow-common
-    command: >
-      bash -c "
-        airflow db migrate &&
-        airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true &&
-        airflow webserver --port 8080
-      "
-    ports:
-      - "8080:8080"
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-  # ========== Airflow Scheduler ==========
-  airflow-scheduler:
-    <<: *airflow-common
-    command: airflow scheduler
-    depends_on:
-      airflow-webserver:
-        condition: service_healthy
 
   # ========== PostgreSQL Exporter ==========
   postgres-exporter:
@@ -191,4 +167,3 @@ volumes:
   postgres_data:
   clickhouse_data:
   grafana_data:
-  airflow_logs:
