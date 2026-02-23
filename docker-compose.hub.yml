@@ -1,0 +1,194 @@
+version: '3.8'
+
+x-airflow-common: &airflow-common
+  image: whale99/findata-airflow:latest
+  environment:
+    - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+    - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://postgres:postgres@db:5432/airflow_db
+    - AIRFLOW__CORE__FERNET_KEY=ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=
+    - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    - AIRFLOW__CORE__DAGS_FOLDER=/opt/airflow/project/airflow/dags
+    - DJANGO_SETTINGS_MODULE=config.settings
+    - PG_HOST=db
+    - PG_PORT=5432
+    - PG_USER=postgres
+    - PG_PASSWORD=postgres
+    - CLICKHOUSE_HOST=clickhouse
+    - CLICKHOUSE_PORT=8123
+    - REDIS_HOST=redis
+  volumes:
+    - airflow_logs:/opt/airflow/logs
+  depends_on:
+    db:
+      condition: service_healthy
+    clickhouse:
+      condition: service_healthy
+    redis:
+      condition: service_started
+
+services:
+  # ========== Django Web Application ==========
+  web:
+    image: whale99/findata-web:latest
+    command: >
+      bash -c "
+        python manage.py migrate &&
+        python manage.py setup_schemas &&
+        python manage.py seed_tenants &&
+        python manage.py init_clickhouse &&
+        gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 300
+      "
+    ports:
+      - "8000:8000"
+    environment:
+      - DJANGO_SECRET_KEY=change-this-in-production
+      - DJANGO_DEBUG=True
+      - PG_HOST=db
+      - PG_PORT=5432
+      - PG_USER=postgres
+      - PG_PASSWORD=postgres
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=8123
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+    depends_on:
+      db:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  # ========== PostgreSQL ==========
+  db:
+    image: postgres:16
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/init_pg.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=financial_shared
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ========== ClickHouse (Data Warehouse) ==========
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./infrastructure/clickhouse/users.xml:/etc/clickhouse-server/users.d/users.xml
+      - ./infrastructure/clickhouse/config.xml:/etc/clickhouse-server/config.d/prometheus.xml
+    ports:
+      - "8123:8123"
+      - "9001:9000"
+      - "9363:9363"
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ========== Redis ==========
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+
+  # ========== Airflow Webserver ==========
+  airflow-webserver:
+    <<: *airflow-common
+    command: >
+      bash -c "
+        airflow db migrate &&
+        airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true &&
+        airflow webserver --port 8080
+      "
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ========== Airflow Scheduler ==========
+  airflow-scheduler:
+    <<: *airflow-common
+    command: airflow scheduler
+    depends_on:
+      airflow-webserver:
+        condition: service_healthy
+
+  # ========== PostgreSQL Exporter ==========
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@db:5432/financial_shared?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ========== Redis Exporter ==========
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+    ports:
+      - "9121:9121"
+    depends_on:
+      - redis
+
+  # ========== cAdvisor (Container Metrics) ==========
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    command:
+      - --store_container_labels=true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    ports:
+      - "8081:8080"
+    privileged: true
+
+  # ========== Prometheus ==========
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./infrastructure/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - web
+      - postgres-exporter
+      - redis-exporter
+
+  # ========== Grafana ==========
+  grafana:
+    image: grafana/grafana:latest
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./infrastructure/grafana/dashboards:/etc/grafana/provisioning/dashboards
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  grafana_data:
+  airflow_logs:
