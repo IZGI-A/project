@@ -43,4 +43,5 @@ class ValidationErrorSerializer(serializers.ModelSerializer):
 
 
 class SyncTriggerSerializer(serializers.Serializer):
+    tenant_id = serializers.CharField(max_length=20)
     loan_type = serializers.ChoiceField(choices=['RETAIL', 'COMMERCIAL'])

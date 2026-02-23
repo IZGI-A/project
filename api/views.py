@@ -56,8 +56,16 @@ class SyncTriggerView(TenantMixin, APIView):
         serializer = SyncTriggerSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        tenant_id = serializer.validated_data['tenant_id']
         loan_type = serializer.validated_data['loan_type']
         tenant = request.tenant
+
+        # Verify tenant_id matches authenticated tenant
+        if tenant_id != tenant.tenant_id:
+            return Response(
+                {'error': 'tenant_id does not match authenticated tenant'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         # Find sync configuration
         try:
@@ -132,10 +140,17 @@ class DataView(TenantMixin, APIView):
         from adapter.clickhouse_manager import get_clickhouse_client
 
         tenant = request.tenant
+        tenant_id = request.query_params.get('tenant_id')
         loan_type = request.query_params.get('loan_type')
         data_type = request.query_params.get('data_type', 'credit')
         limit = min(int(request.query_params.get('limit', 100)), 10000)
         offset = int(request.query_params.get('offset', 0))
+
+        if tenant_id and tenant_id != tenant.tenant_id:
+            return Response(
+                {'error': 'tenant_id does not match authenticated tenant'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         if not loan_type:
             return Response(
@@ -206,8 +221,15 @@ class ProfilingView(TenantMixin, APIView):
         from adapter.profiling.engine import ProfilingEngine
 
         tenant = request.tenant
+        tenant_id = request.query_params.get('tenant_id')
         loan_type = request.query_params.get('loan_type')
         data_type = request.query_params.get('data_type', 'credit')
+
+        if tenant_id and tenant_id != tenant.tenant_id:
+            return Response(
+                {'error': 'tenant_id does not match authenticated tenant'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         if not loan_type:
             return Response(
