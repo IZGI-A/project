@@ -1,22 +1,54 @@
 {% extends "base.html" %}
 {% block title %}Data View - {{ tenant_name }}{% endblock %}
 
+{% block extra_css %}
+<style>
+    .col-panel {
+        position: absolute; right: 0; top: 100%; margin-top: 4px;
+        background: rgba(30,27,75,0.97); border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 12px; min-width: 260px; max-height: 420px;
+        z-index: 1050; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        padding: 8px; overflow: hidden;
+    }
+    .col-panel-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.4);
+        z-index: 1049;
+    }
+    .col-panel-overlay.active { display: block; }
+    @media (max-width: 767.98px) {
+        .col-panel {
+            position: fixed !important;
+            bottom: 0 !important; left: 0 !important; right: 0 !important;
+            top: auto !important;
+            width: 100% !important; min-width: 0 !important; max-height: 65vh;
+            border-radius: 16px 16px 0 0;
+            margin-top: 0;
+            padding: 12px;
+        }
+        .col-panel #colListWrap { max-height: calc(65vh - 100px); }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <h4 class="page-title mb-4 text-glow">Data Warehouse Viewer</h4>
 
 <!-- Filters -->
-<div class="mb-3" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; position: relative; z-index: 10;">
+<div class="mb-3" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; position: relative; z-index: 10; max-width: 100%;">
     <div class="card-body py-2 px-3">
-        <form id="filterForm" method="get" class="d-flex gap-3 align-items-center flex-wrap">
+        <form id="filterForm" method="get" class="d-flex gap-2 gap-md-3 align-items-center flex-wrap">
             <input type="hidden" name="columns" id="hiddenColumns" value="{{ selected_columns }}">
-            <div>
-                <select name="loan_type" class="form-select form-select-sm" style="border-radius: 8px; min-width: 130px;">
+            <div class="flex-fill flex-md-grow-0">
+                <select name="loan_type" class="form-select form-select-sm" style="border-radius: 8px; min-width: 110px;">
                     <option value="RETAIL" {% if loan_type == "RETAIL" %}selected{% endif %}>Retail</option>
                     <option value="COMMERCIAL" {% if loan_type == "COMMERCIAL" %}selected{% endif %}>Commercial</option>
                 </select>
             </div>
-            <div>
-                <select name="data_type" class="form-select form-select-sm" style="border-radius: 8px; min-width: 130px;">
+            <div class="flex-fill flex-md-grow-0">
+                <select name="data_type" class="form-select form-select-sm" style="border-radius: 8px; min-width: 110px;">
                     <option value="credit" {% if data_type == "credit" %}selected{% endif %}>Credits</option>
                     <option value="payment" {% if data_type == "payment" %}selected{% endif %}>Payments</option>
                 </select>
@@ -30,8 +62,8 @@
                   title="Click to clear sorting">
             </span>
 
-            <span class="ms-auto" style="color: var(--text-secondary); font-size: 0.85rem;">
-                <i class="bi bi-database"></i> Total: <strong id="totalCount" style="color: var(--accent-cyan);">0</strong> rows
+            <span class="ms-auto text-nowrap" style="color: var(--text-secondary); font-size: 0.8rem;">
+                <i class="bi bi-database"></i> <strong id="totalCount" style="color: var(--accent-cyan);">0</strong> <span class="d-none d-sm-inline">rows</span>
             </span>
 
             <!-- Column Selector (custom panel, no Bootstrap dropdown) -->
@@ -39,13 +71,10 @@
             <div style="position: relative;">
                 <button class="btn btn-glass btn-sm" type="button" id="columnSelectorBtn" style="border-radius: 8px;">
                     <i class="bi bi-layout-three-columns"></i>
-                    Columns <span class="badge badge-glass ms-1" id="colCountBadge">{{ columns|length }}</span>
+                    <span class="d-none d-sm-inline">Columns</span> <span class="badge badge-glass ms-1" id="colCountBadge">{{ columns|length }}</span>
                 </button>
-                <div id="colPanel" style="display:none; position:absolute; right:0; top:100%; margin-top:4px;
-                            background: rgba(30,27,75,0.97); border: 1px solid rgba(255,255,255,0.12);
-                            border-radius: 12px; min-width: 260px; max-height: 420px;
-                            z-index: 1050; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-                            padding: 8px; overflow: hidden; display: none;">
+                <div id="colPanelOverlay" class="col-panel-overlay"></div>
+                <div id="colPanel" class="col-panel" style="display:none;">
                     <input type="text" id="colSearch" class="form-control form-control-sm mb-2"
                            placeholder="Search columns..." autocomplete="off"
                            style="border-radius: 6px; font-size: 0.8rem;">
@@ -97,7 +126,7 @@
 
 <!-- Pagination -->
 <nav class="mt-3" id="paginationNav" style="display: none;">
-    <div class="d-flex justify-content-center align-items-center gap-3">
+    <div class="d-flex justify-content-center align-items-center gap-3 flex-wrap">
         <ul class="pagination pagination-sm mb-0" id="paginationList"></ul>
         <select id="pageSizeSelect" class="form-select form-select-sm" style="width: auto; border-radius: 8px; font-size: 0.8rem;">
             <option value="50">50 / page</option>
@@ -319,24 +348,32 @@
     }
 
     // Toggle panel
+    var colOverlay = document.getElementById('colPanelOverlay');
+    function openColPanel() {
+        colPanel.style.display = 'block';
+        if (colOverlay) colOverlay.classList.add('active');
+        var si = document.getElementById('colSearch');
+        if (si) { si.value = ''; si.focus(); }
+        document.querySelectorAll('.col-item').forEach(function(l){ l.style.display = ''; });
+    }
+    function closeColPanel() {
+        colPanel.style.display = 'none';
+        if (colOverlay) colOverlay.classList.remove('active');
+    }
     if (colToggleBtn && colPanel) {
         colToggleBtn.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
             var open = colPanel.style.display !== 'none';
-            colPanel.style.display = open ? 'none' : 'block';
-            if (!open) {
-                var si = document.getElementById('colSearch');
-                if (si) { si.value = ''; si.focus(); }
-                document.querySelectorAll('.col-item').forEach(function(l){ l.style.display = ''; });
-            }
+            open ? closeColPanel() : openColPanel();
         });
         // Close when clicking outside
         document.addEventListener('click', function(e) {
             if (!colPanel.contains(e.target) && e.target !== colToggleBtn && !colToggleBtn.contains(e.target)) {
-                colPanel.style.display = 'none';
+                closeColPanel();
             }
         });
+        if (colOverlay) colOverlay.addEventListener('click', closeColPanel);
         // Prevent clicks inside panel from closing it or submitting form
         colPanel.addEventListener('click', function(e) {
             e.stopPropagation();

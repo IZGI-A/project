@@ -27,14 +27,14 @@
 
 {% block content %}
 <!-- Header with filters -->
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <h4 class="page-title mb-0 text-glow">Data Profiling</h4>
-    <form method="get" class="d-flex gap-2 align-items-center">
-        <select name="loan_type" class="form-select form-select-sm" style="width: 140px; border-radius: 8px;">
+    <form method="get" class="d-flex gap-2 align-items-center flex-wrap">
+        <select name="loan_type" class="form-select form-select-sm" style="min-width: 120px; border-radius: 8px;">
             <option value="RETAIL" {% if loan_type == "RETAIL" %}selected{% endif %}>Retail</option>
             <option value="COMMERCIAL" {% if loan_type == "COMMERCIAL" %}selected{% endif %}>Commercial</option>
         </select>
-        <select name="data_type" class="form-select form-select-sm" style="width: 140px; border-radius: 8px;">
+        <select name="data_type" class="form-select form-select-sm" style="min-width: 120px; border-radius: 8px;">
             <option value="credit" {% if data_type == "credit" %}selected{% endif %}>Credits</option>
             <option value="payment" {% if data_type == "payment" %}selected{% endif %}>Payments</option>
         </select>
@@ -48,7 +48,7 @@
 
 <!-- Summary Cards -->
 <div class="row g-3 mb-4">
-    <div class="col-md-3">
+    <div class="col-6 col-lg-3">
         <div class="glass-card metric-card h-100" style="border-left-color: var(--accent-purple);">
             <div class="card-body px-3 py-4">
                 <div class="metric-label mb-2">Total Rows</div>
@@ -56,7 +56,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-6 col-lg-3">
         <div class="glass-card metric-card h-100" style="border-left-color: var(--accent-green);">
             <div class="card-body px-3 py-4">
                 <div class="metric-label mb-2">Numeric Fields</div>
@@ -64,7 +64,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-6 col-lg-3">
         <div class="glass-card metric-card h-100" style="border-left-color: var(--accent-cyan);">
             <div class="card-body px-3 py-4">
                 <div class="metric-label mb-2">Categorical Fields</div>
@@ -72,7 +72,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-6 col-lg-3">
         <div class="glass-card metric-card h-100" style="border-left-color: var(--accent-amber);">
             <div class="card-body px-3 py-4">
                 <div class="metric-label mb-2">Avg Completeness</div>
@@ -164,6 +164,7 @@
         <div class="glass-card">
             <div class="card-header px-3 py-2"><h6 class="mb-0" style="font-weight: 600;">Field Completeness</h6></div>
             <div class="card-body p-0">
+                <div class="table-responsive">
                 <table class="table table-glass table-hover">
                     <thead>
                         <tr>
@@ -176,6 +177,7 @@
                     </thead>
                     <tbody id="completeness-table"></tbody>
                 </table>
+                </div>
             </div>
         </div>
     </div>
