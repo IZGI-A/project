@@ -45,61 +45,87 @@ Multi-tenant financial data integration platform. Banks upload loan portfolio CS
 
 **Multi-Tenancy**: PostgreSQL schema-based isolation (bank001, bank002, bank003). ClickHouse'da tenant basina ayri database (bank001_dw, bank002_dw, bank003_dw).
 
-## Prerequisites
-
-- **Docker** ve **Docker Compose** yuklu olmali
-- Minimum 4 GB RAM (tum servisler icin)
-- Portlar musait olmali: 8000, 8123, 5432, 6379, 3000, 9090
-
 ## Quick Start
 
-### 1. Repo'yu klonla
+### Ongereksinimler
+
+- **Docker** ve **Docker Compose** yuklu olmali
+- Minimum **4 GB RAM**
+- Su portlar musait olmali: `8000`, `8123`, `5432`, `6379`, `3000`, `9090`
+
+### Adim 1 — Repo'yu klonla
 
 ```bash
 git clone https://github.com/<your-username>/case-study-project.git
 cd case-study-project
 ```
 
-### 2. Docker Hub'dan cek ve calistir
+### Adim 2 — Servisleri baslat
+
+**Docker Hub image ile (onerilen):**
 
 ```bash
 docker compose -f docker-compose.hub.yml up -d
 ```
 
-> Yerel build ile calistirmak istersen:
-> ```bash
-> docker compose up -d
-> ```
-
-### 3. Servislerin hazir olmasini bekle
+**Yerel build ile:**
 
 ```bash
+docker compose up -d
+```
+
+### Adim 3 — Baslangic surecini izle
+
+```bash
+# Docker Hub image kullaniyorsan:
+docker compose -f docker-compose.hub.yml logs -f web
+
+# Yerel build kullaniyorsan:
 docker compose logs -f web
 ```
 
-Su log satirini gorene kadar bekle:
+Servisler su sirayla ayaga kalkar:
+
+```
+1. PostgreSQL, ClickHouse, Redis   (altyapi servisleri, health check bekler)
+      ↓ hazir
+2. Web (Django)                    (baslangic komutlarini calistirir)
+      ↓ hazir
+3. Celery Worker + Celery Beat     (web basladiktan sonra baslar)
+4. Prometheus → Grafana            (monitoring)
+```
+
+Web servisi ilk acilista su komutlari **otomatik** calistirir:
+
+| Sira | Komut | Ne yapar |
+|------|-------|----------|
+| 1 | `migrate` | PostgreSQL tablolarini olusturur |
+| 2 | `setup_schemas` | Tenant schema'larini olusturur (bank001, bank002, bank003) |
+| 3 | `seed_tenants` | 3 tenant + API key'leri olusturur |
+| 4 | `init_clickhouse` | ClickHouse database ve tablolari olusturur (bank001_dw, bank002_dw, bank003_dw) |
+| 5 | `gunicorn` | Web sunucusunu baslatir |
+
+Su log satirini gordugunuzde sistem hazirdir:
 ```
 Listening at: http://0.0.0.0:8000
 ```
 
-Ilk acilista otomatik olarak sunlar calisir:
-- `migrate` — PostgreSQL tablolarini olusturur
-- `setup_schemas` — Tenant schema'larini olusturur (bank001, bank002, bank003)
-- `seed_tenants` — 3 tenant + API key'leri olusturur
-- `init_clickhouse` — ClickHouse database ve tablolari olusturur
-
-### 4. API Key'leri al
+### Adim 4 — API Key'leri al
 
 Tenant'lar ilk olusturulduklarinda API key'leri docker log'larinda gorunur:
 
 ```bash
+# Docker Hub image:
+docker compose -f docker-compose.hub.yml logs web | grep "API key"
+
+# Yerel build:
 docker compose logs web | grep "API key"
 ```
 
 Eger log'lar kaybolmussa yeni key uret:
 
 ```bash
-docker compose exec web python manage.py shell -c "
+docker compose -f docker-compose.hub.yml exec web python manage.py shell -c "
 import secrets
 from django.contrib.auth.hashers import make_password
 from adapter.models import Tenant
@@ -113,11 +139,46 @@ for t in Tenant.objects.all().order_by('tenant_id'):
 "
 ```
 
-### 5. Web UI'a giris yap
+Cikti:
+```
+BANK001: sk_live_abc123...
+BANK002: sk_live_def456...
+BANK003: sk_live_ghi789...
+```
+
+### Adim 5 — Web UI'a giris yap
 
 1. Tarayicida `http://localhost:8000` adresine git
-2. API key ile giris yap
+2. API key ile giris yap (ornegin BANK001'in key'i)
 3. Dashboard sayfasi acilir
+
+### Adim 6 — Test verisi yukle ve sync et
+
+```bash
+# Tum test verilerini yukle (3 tenant x 2 loan type x 2 file type)
+docker compose -f docker-compose.hub.yml exec web python manage.py load_csv --all
+```
+
+Yukleme sonrasi iki secenek:
+- **Otomatik:** 60 saniye icinde Celery Beat otomatik sync yapacak
+- **Manuel:** Web UI'da Sync sayfasindan "Sync" butonuna bas
+
+Sync durumunu izle:
+```bash
+docker compose -f docker-compose.hub.yml logs -f celery-worker
+```
+
+### Adim 7 — Dogrulama
+
+| Kontrol | Nasil |
+|---------|-------|
+| Web UI calisiyor mu | `http://localhost:8000` |
+| Dashboard'da veri var mi | Giris yaptiktan sonra satir sayilari gorunmeli |
+| Celery calisiyor mu | `docker compose -f docker-compose.hub.yml logs celery-worker` |
+| ClickHouse'da veri var mi | Data View sayfasinda kayitlar gorunmeli |
+| Profiling calisiyor mu | Profiling sayfasinda istatistikler gorunmeli |
+| Grafana calisiyor mu | `http://localhost:3000` (admin/admin) |
+| Prometheus calisiyor mu | `http://localhost:9090` |
 
 ## Automated Sync (Celery Beat)
 
@@ -148,21 +209,19 @@ docker compose logs -f celery-worker
 
 ```bash
 # Tum test verilerini yukle (3 tenant x 2 loan type x 2 file type)
-docker compose exec web python manage.py load_csv --all
+docker compose -f docker-compose.hub.yml exec web python manage.py load_csv --all
 
 # Tek dosya yukle
-docker compose exec web python manage.py load_csv \
+docker compose -f docker-compose.hub.yml exec web python manage.py load_csv \
   --tenant_id BANK001 \
   --loan_type RETAIL \
   --file_type credit \
   --file data-test/BANK001/RETAIL/retail_credit.csv
 ```
 
-Yukleme sonrasi sync tetikle (manuel):
+### Yontem 3: API ile manuel sync tetikle
 
 ```bash
-# Web UI'dan: Sync sayfasi → "Sync" butonu
-# veya API ile:
 curl -X POST http://localhost:8000/api/sync/ \
   -H "Authorization: Api-Key sk_live_YOUR_KEY_HERE" \
   -H "Content-Type: application/json" \
@@ -337,24 +396,26 @@ docker pull whale99/findata-web:latest
 
 ## Yararli Komutlar
 
+> Not: Yerel build kullaniyorsan `-f docker-compose.hub.yml` kismini kaldir.
+
 ```bash
 # Loglari izle
-docker compose logs -f web
-docker compose logs -f celery-worker
+docker compose -f docker-compose.hub.yml logs -f web
+docker compose -f docker-compose.hub.yml logs -f celery-worker
 
 # Django shell
-docker compose exec web python manage.py shell
+docker compose -f docker-compose.hub.yml exec web python manage.py shell
 
 # Testleri calistir
-docker compose exec web pytest
+docker compose -f docker-compose.hub.yml exec web pytest
 
 # Veritabanini sifirla
-docker compose down -v
-docker compose up -d
+docker compose -f docker-compose.hub.yml down -v
+docker compose -f docker-compose.hub.yml up -d
 
 # Tek servisi yeniden baslat
-docker compose restart web
+docker compose -f docker-compose.hub.yml restart web
 
 # Tum servisleri durdur
-docker compose down
+docker compose -f docker-compose.hub.yml down
 ```
