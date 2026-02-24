@@ -22,19 +22,36 @@
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
+    @media (max-width: 767.98px) {
+        .profiling-header {
+            flex-direction: column;
+            align-items: stretch !important;
+            justify-content: flex-start !important;
+        }
+        .profiling-header form {
+            width: 100%;
+        }
+        .profiling-header .form-select {
+            min-width: 0 !important;
+            flex: 1 1 0;
+        }
+        /* Remove fixed widths from table headers on mobile */
+        .table-glass th[style*="width"] { width: auto !important; }
+        .metric-card .metric-value { font-size: 1.4rem; }
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <!-- Header with filters -->
-<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2 profiling-header">
     <h4 class="page-title mb-0 text-glow">Data Profiling</h4>
     <form method="get" class="d-flex gap-2 align-items-center flex-wrap">
-        <select name="loan_type" class="form-select form-select-sm" style="min-width: 120px; border-radius: 8px;">
+        <select name="loan_type" class="form-select form-select-sm" style="border-radius: 8px;">
             <option value="RETAIL" {% if loan_type == "RETAIL" %}selected{% endif %}>Retail</option>
             <option value="COMMERCIAL" {% if loan_type == "COMMERCIAL" %}selected{% endif %}>Commercial</option>
         </select>
-        <select name="data_type" class="form-select form-select-sm" style="min-width: 120px; border-radius: 8px;">
+        <select name="data_type" class="form-select form-select-sm" style="border-radius: 8px;">
             <option value="credit" {% if data_type == "credit" %}selected{% endif %}>Credits</option>
             <option value="payment" {% if data_type == "payment" %}selected{% endif %}>Payments</option>
         </select>
@@ -143,11 +160,13 @@
                             <canvas id="chart-{{ field }}"></canvas>
                         </div>
                     </div>
-                    <div class="card-footer p-0" style="background: transparent; border-top: 1px solid var(--glass-border-light); max-height: 180px; overflow-y: auto;">
+                    <div class="card-footer p-0" style="background: transparent; border-top: 1px solid var(--glass-border-light); max-height: 180px; overflow: auto;">
+                        <div class="table-responsive">
                         <table class="table table-glass mb-0" style="font-size: 0.78rem;">
                             <thead><tr><th>Value</th><th class="text-end">Count</th><th style="width: 100px;">Share</th></tr></thead>
                             <tbody id="cat-table-{{ field }}"></tbody>
                         </table>
+                        </div>
                     </div>
                 </div>
             </div>

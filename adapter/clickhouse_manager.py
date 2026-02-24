@@ -105,12 +105,18 @@ def init_clickhouse_databases():
         db_client.command(FACT_CREDIT_DDL)
         db_client.command(FACT_PAYMENT_DDL)
 
-        # Staging tables (same schema as fact tables)
+        # Staging tables: same schema but plain MergeTree (no deduplication).
+        # ReplacingMergeTree on staging causes data loss during background
+        # merges before REPLACE PARTITION can move data to fact tables.
         staging_credit_ddl = FACT_CREDIT_DDL.replace(
             'fact_credit', 'staging_credit'
+        ).replace(
+            'ReplacingMergeTree(loaded_at)', 'MergeTree()'
         )
         staging_payment_ddl = FACT_PAYMENT_DDL.replace(
             'fact_payment', 'staging_payment'
+        ).replace(
+            'ReplacingMergeTree(loaded_at)', 'MergeTree()'
         )
         db_client.command(staging_credit_ddl)
         db_client.command(staging_payment_ddl)

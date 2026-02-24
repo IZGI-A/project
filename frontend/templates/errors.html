@@ -35,7 +35,7 @@
         {% if sync_log %}
         <div class="glass-card mb-3">
             <div class="card-body py-2 px-3">
-                <div class="d-flex align-items-center gap-2">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
                     <h6 class="mb-0" style="font-weight: 600;">Sync {{ sync_log.id|truncatechars:12 }}</h6>
                     <span class="badge badge-glass">{{ sync_log.loan_type }}</span>
                     <span class="badge badge-danger-glass">{{ sync_log.error_count }} errors</span>

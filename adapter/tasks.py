@@ -4,12 +4,30 @@ Celery tasks for automated data synchronization.
 check_and_sync runs every 60 seconds (via Beat), checks Redis for new
 upload data, and dispatches run_sync for each tenant/loan_type that has
 pending data.
+
+A Redis-based distributed lock prevents concurrent syncs for the same
+tenant/loan_type pair, which would corrupt staging tables.
 """
 import logging
 
+import redis as _redis
 from celery import shared_task
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
+
+SYNC_LOCK_TTL = 600  # 10 minutes max lock duration
+
+
+def _get_sync_lock_key(tenant_id: str, loan_type: str) -> str:
+    return f"sync_lock:{tenant_id}:{loan_type}"
+
+
+def _get_redis():
+    return _redis.Redis(
+        host=getattr(settings, 'REDIS_HOST', 'redis'),
+        port=6379, db=0,
+    )
 
 
 @shared_task(name='adapter.tasks.check_and_sync')
@@ -38,6 +56,15 @@ def check_and_sync():
                 ) > 0
 
                 if has_credit or has_payment:
+                    # Skip if a sync is already running for this tenant/loan_type
+                    r = _get_redis()
+                    lock_key = _get_sync_lock_key(tenant.tenant_id, config.loan_type)
+                    if r.exists(lock_key):
+                        logger.info(
+                            "Sync already in progress, skipping: %s/%s",
+                            tenant.tenant_id, config.loan_type,
+                        )
+                        continue
                     run_sync.delay(tenant.tenant_id, config.loan_type)
                     dispatched += 1
                     logger.info(
@@ -56,6 +83,7 @@ def check_and_sync():
 def run_sync(self, tenant_id, loan_type):
     """
     Execute the full sync pipeline for a single tenant/loan_type.
+    The SyncEngine itself acquires a distributed lock to prevent concurrent syncs.
     """
     from adapter.models import Tenant, SyncConfiguration
     from adapter.sync.engine import SyncEngine

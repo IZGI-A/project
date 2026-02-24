@@ -346,6 +346,9 @@ class DataViewPage(View):
             return str(val)
         return val
 
+    MAX_PAGE_SIZE = 500
+    DEFAULT_PAGE_SIZE = 50
+
     def get(self, request):
         ctx = _get_tenant_context(request)
         if not ctx:
@@ -356,10 +359,22 @@ class DataViewPage(View):
         data_type = request.GET.get('data_type', 'credit')
         selected_cols_param = request.GET.get('columns', '')
 
+        # Server-side pagination & sorting params
+        page = max(1, int(request.GET.get('page', 1)))
+        page_size = min(
+            self.MAX_PAGE_SIZE,
+            max(1, int(request.GET.get('page_size', self.DEFAULT_PAGE_SIZE))),
+        )
+        sort_col = request.GET.get('sort', '')
+        sort_dir = request.GET.get('dir', 'asc').lower()
+        if sort_dir not in ('asc', 'desc'):
+            sort_dir = 'asc'
+
         columns = []
         all_columns = []
         numeric_columns = []
         data_json = '[]'
+        total_rows = 0
 
         try:
             client = get_clickhouse_client(database=ctx['ch_database'])
@@ -394,16 +409,30 @@ class DataViewPage(View):
             else:
                 chosen = list(all_columns)
 
-            # Fetch ALL rows (no LIMIT/OFFSET, no ORDER BY — sorting is client-side)
+            # Total row count (for pagination)
+            total_rows = client.command(
+                f"SELECT count() FROM {table} WHERE loan_type = {{lt:String}}",
+                parameters={'lt': loan_type},
+            )
+
+            # Server-side sorting
+            order_clause = "ORDER BY loan_account_number"
+            if sort_col and sort_col in chosen:
+                order_clause = f"ORDER BY {sort_col} {sort_dir.upper()}"
+
+            # Paginated query
+            offset = (page - 1) * page_size
             select_clause = ', '.join(chosen)
             result = client.query(
                 f"SELECT {select_clause} FROM {table} "
-                f"WHERE loan_type = {{lt:String}}",
-                parameters={'lt': loan_type},
+                f"WHERE loan_type = {{lt:String}} "
+                f"{order_clause} "
+                f"LIMIT {{lim:UInt32}} OFFSET {{off:UInt32}}",
+                parameters={'lt': loan_type, 'lim': page_size, 'off': offset},
             )
             columns = list(result.column_names)
 
-            # Serialize to JSON
+            # Serialize to JSON (only page_size rows, fast)
             rows = [
                 [self._serialize_value(cell) for cell in row]
                 for row in result.result_rows
@@ -411,6 +440,15 @@ class DataViewPage(View):
             data_json = json.dumps(rows, ensure_ascii=False)
         except Exception as e:
             logger.warning("Data view error: %s", e)
+
+        total_pages = max(1, (total_rows + page_size - 1) // page_size)
+        page = min(page, total_pages)
+
+        # Build page range (show ~7 pages around current page)
+        wing = 3
+        start_page = max(1, page - wing)
+        end_page = min(total_pages, page + wing)
+        page_range = list(range(start_page, end_page + 1))
 
         context = {
             **ctx,
@@ -423,6 +461,13 @@ class DataViewPage(View):
             'numeric_columns': numeric_columns,
             'numeric_columns_json': json.dumps(numeric_columns),
             'data_json': data_json,
+            'total_rows': total_rows,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': total_pages,
+            'page_range': page_range,
+            'sort_col': sort_col,
+            'sort_dir': sort_dir,
         }
         return render(request, 'data_view.html', context)
 

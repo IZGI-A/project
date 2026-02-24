@@ -28,44 +28,46 @@ class StorageManager:
     def _get_client(self):
         return get_clickhouse_client(database=self.ch_database)
 
+    INSERT_BATCH_SIZE = 50_000  # rows per ClickHouse insert batch
+
     def store_credits(self, records: list, loan_type: str, batch_id: str) -> int:
         """
-        Store credit records atomically.
+        Store credit records atomically using batched inserts.
         1. Truncate staging_credit
-        2. Insert into staging_credit
+        2. Insert into staging_credit in batches (memory efficient)
         3. REPLACE PARTITION from staging_credit to fact_credit
         4. Truncate staging_credit
         """
         client = self._get_client()
         try:
-            # 1. Clear staging
             client.command("TRUNCATE TABLE staging_credit")
 
-            # 2. Insert into staging
-            rows = [self._prepare_credit_row(r, loan_type, batch_id) for r in records]
-            if not rows:
+            if not records:
                 return 0
 
             columns = self._credit_columns()
-            client.insert('staging_credit', rows, column_names=columns)
+            total_inserted = 0
 
-            # 3. Atomic replace partition
+            for i in range(0, len(records), self.INSERT_BATCH_SIZE):
+                batch = records[i:i + self.INSERT_BATCH_SIZE]
+                rows = [self._prepare_credit_row(r, loan_type, batch_id) for r in batch]
+                client.insert('staging_credit', rows, column_names=columns)
+                total_inserted += len(rows)
+
             client.command(
                 f"ALTER TABLE fact_credit REPLACE PARTITION '{loan_type}' "
                 f"FROM staging_credit"
             )
-
-            # 4. Clean staging
             client.command("TRUNCATE TABLE staging_credit")
 
             clickhouse_rows_inserted_total.labels(
                 tenant=self._tenant_id, table='fact_credit',
-            ).inc(len(rows))
+            ).inc(total_inserted)
             logger.info(
                 "Stored %d credit records for %s in %s",
-                len(rows), loan_type, self.ch_database,
+                total_inserted, loan_type, self.ch_database,
             )
-            return len(rows)
+            return total_inserted
         except Exception as e:
             logger.error("Failed to store credits: %s", e)
             try:
@@ -76,35 +78,39 @@ class StorageManager:
 
     def store_payments(self, records: list, loan_type: str, batch_id: str) -> int:
         """
-        Store payment records atomically.
+        Store payment records atomically using batched inserts.
         Same pattern as store_credits but for fact_payment.
         """
         client = self._get_client()
         try:
             client.command("TRUNCATE TABLE staging_payment")
 
-            rows = [self._prepare_payment_row(r, loan_type, batch_id) for r in records]
-            if not rows:
+            if not records:
                 return 0
 
             columns = self._payment_columns()
-            client.insert('staging_payment', rows, column_names=columns)
+            total_inserted = 0
+
+            for i in range(0, len(records), self.INSERT_BATCH_SIZE):
+                batch = records[i:i + self.INSERT_BATCH_SIZE]
+                rows = [self._prepare_payment_row(r, loan_type, batch_id) for r in batch]
+                client.insert('staging_payment', rows, column_names=columns)
+                total_inserted += len(rows)
 
             client.command(
                 f"ALTER TABLE fact_payment REPLACE PARTITION '{loan_type}' "
                 f"FROM staging_payment"
             )
-
             client.command("TRUNCATE TABLE staging_payment")
 
             clickhouse_rows_inserted_total.labels(
                 tenant=self._tenant_id, table='fact_payment',
-            ).inc(len(rows))
+            ).inc(total_inserted)
             logger.info(
                 "Stored %d payment records for %s in %s",
-                len(rows), loan_type, self.ch_database,
+                total_inserted, loan_type, self.ch_database,
             )
-            return len(rows)
+            return total_inserted
         except Exception as e:
             logger.error("Failed to store payments: %s", e)
             try:

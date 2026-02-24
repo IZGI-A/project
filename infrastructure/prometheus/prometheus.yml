@@ -37,47 +37,47 @@ scrape_configs:
       - targets: ['cadvisor:8080']
     metric_relabel_configs:
       - source_labels: [id]
-        regex: '.*58a3fa45a3fb.*'
+        regex: '.*29ad93c314f6.*'
         target_label: service
         replacement: 'web'
       - source_labels: [id]
-        regex: '.*d63ddce72fb1.*'
+        regex: '.*107572ba89ff.*'
         target_label: service
         replacement: 'db'
       - source_labels: [id]
-        regex: '.*b3646e2125b0.*'
+        regex: '.*3600cb7b0fb3.*'
         target_label: service
         replacement: 'clickhouse'
       - source_labels: [id]
-        regex: '.*6d1c4a9f4156.*'
+        regex: '.*779a959fcd80.*'
         target_label: service
         replacement: 'redis'
       - source_labels: [id]
-        regex: '.*08efddca369c.*'
+        regex: '.*a71fb0cdf3a4.*'
         target_label: service
-        replacement: 'airflow-webserver'
+        replacement: 'celery-worker'
       - source_labels: [id]
-        regex: '.*feafc45aaabf.*'
+        regex: '.*f33b8ecfd3c3.*'
         target_label: service
-        replacement: 'airflow-scheduler'
+        replacement: 'celery-beat'
       - source_labels: [id]
-        regex: '.*3a8d35ab2875.*'
+        regex: '.*e293cc6795e9.*'
         target_label: service
         replacement: 'prometheus'
       - source_labels: [id]
-        regex: '.*62358792b874.*'
+        regex: '.*2a1c1244c369.*'
         target_label: service
         replacement: 'grafana'
       - source_labels: [id]
-        regex: '.*46c65d9859ec.*'
+        regex: '.*19c4ad3c0a09.*'
         target_label: service
         replacement: 'cadvisor'
       - source_labels: [id]
-        regex: '.*1f941e2485b1.*'
+        regex: '.*8c8a74dbefd2.*'
         target_label: service
         replacement: 'postgres-exporter'
       - source_labels: [id]
-        regex: '.*9f336357895c.*'
+        regex: '.*af858b5ca7c1.*'
         target_label: service
         replacement: 'redis-exporter'
 

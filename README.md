@@ -187,9 +187,12 @@ Celery Beat her 60 saniyede bir Redis'i kontrol eder. Yeni veri yuklenmisse otom
 ```
 Celery Beat (her 60s)
   → check_and_sync: Redis'te yeni veri var mi?
-    → Varsa: run_sync(tenant_id, loan_type) dispatch et
-      → SyncEngine.sync() pipeline'i calistirir
+    → Lock kontrolu: sync_lock:{tenant}:{loan_type} bos mu?
+      → Varsa: run_sync(tenant_id, loan_type) dispatch et
+        → SyncEngine.sync() pipeline'i calistirir
 ```
+
+**Concurrent Sync Korumasi:** Ayni tenant/loan_type icin esanli sync baslatilmasini onlemek icin Redis distributed lock kullanilir (`sync_lock:{tenant}:{loan_type}`, TTL: 600s). Celery Beat dispatch oncesi lock kontrol eder; SyncEngine baslarken lock alir, bitince serbest birakir.
 
 Celery loglarini izlemek icin:
 ```bash
@@ -235,7 +238,7 @@ curl -X POST http://localhost:8000/api/sync/ \
 | Dashboard | `/` | Ozet istatistikler, son sync islemleri, ClickHouse satir sayilari |
 | Upload CSV | `/upload/` | CSV dosyasi yukleme (loan type + file type secimi) |
 | Sync | `/sync/` | Sync tetikleme, gecmis sync loglari, basarisiz kayitlar |
-| Data View | `/data/` | ClickHouse'daki verileri goruntuleme, filtreleme, siralama |
+| Data View | `/data/` | ClickHouse'daki verileri goruntuleme, server-side pagination, siralama |
 | Profiling | `/profiling/` | Veri profili — min/max/avg/stddev, null oranlari, dagilimlar |
 | Errors | `/errors/` | Validasyon hatalari detayi |
 | Settings | `/settings/` | Tenant bilgileri, API key yenileme |
@@ -300,6 +303,8 @@ CSV Upload → Redis (staging) → Fetch → Validate → Normalize → ClickHou
 ### Storage (ClickHouse)
 - Atomic replacement: `REPLACE PARTITION` ile veri degisimi
 - Ayni loan type icin yeni yukleme eskisinin yerine gecer (append degil)
+- Staging tablolar **MergeTree** engine kullanir (background merge dedup'u onlemek icin)
+- Fact tablolar **ReplacingMergeTree(loaded_at)** engine kullanir
 
 ## Monitoring
 
@@ -339,7 +344,7 @@ Metrik kaynaklari:
 | celery-beat | — | Celery Beat scheduler (60s polling) |
 | db | 5432 | PostgreSQL |
 | clickhouse | 8123 | ClickHouse HTTP |
-| redis | 6379 | Redis (DB0: Celery, DB1: staging, DB2: cache) |
+| redis | 6379 | Redis (DB0: Celery, DB1: staging, DB2: cache), maxmemory: 512MB |
 | prometheus | 9090 | Prometheus |
 | grafana | 3000 | Grafana |
 | cadvisor | 8081 | Container metrikleri |
