@@ -104,6 +104,8 @@ HTMX tabanli arayuz:
 - Dashboard, Upload, Sync, Data View, Profiling, Errors, Settings sayfalari
 - HTMX ile partial page update (tam sayfa yenileme yok)
 - Chart.js ile gorsellestime
+- Data View sayfasinda server-side pagination (LIMIT/OFFSET) — buyuk veri setlerinde (1M+ satir) OOM onlenir
+- Responsive tasarim (mobil ve tablet uyumlu)
 
 ### external_bank (Banka Simulatoru)
 CSV verilerini Redis'te saklar, sync sirasinda SyncEngine tarafindan okunur:
@@ -160,6 +162,8 @@ Redis DB1 (gzip ile sakla)
 │     └ Kategori: A → ACTIVE, I → INDIVIDUAL  │
 │                                              │
 │  5. STORE (Atomic)                           │
+│     Redis distributed lock al                │
+│     (sync_lock:{tenant}:{loan_type})         │
 │     TRUNCATE staging → INSERT → REPLACE      │
 │     PARTITION → TRUNCATE staging             │
 │                                              │
@@ -197,6 +201,10 @@ Redis :6379
 │   └ extbank_failed:{tenant}:{loan_type}:{file_type}
 │       └ Redis List — basarisiz kayitlar (TTL: 72 saat)
 │
+├── DB 0 — Sync Locks
+│   └ sync_lock:{tenant}:{loan_type}
+│       └ Distributed lock — concurrent sync onleme (TTL: 600s)
+│
 └── DB 2 — Django Cache
     ├ findata:{tenant}:tenant_auth:{prefix}     (5 dk)
     ├ findata:{tenant}:sync_configs             (2 dk)
@@ -209,7 +217,7 @@ Redis :6379
 ```
 
 **Ozellikler:**
-- Bellek limiti: 256 MB, eviction: `allkeys-lru`
+- Bellek limiti: 512 MB, eviction: `allkeys-lru`
 - DB 1'de gzip sikistirma (~%50-60 kazanim)
 - DB 1'de Redis Pipeline ile atomic islemler
 - DB 2'de tum islemler try-except ile sarili (Redis down = DB'ye fallback)
@@ -265,7 +273,8 @@ Client                          Django                    Redis DB2         Post
 4. TRUNCATE staging_credit
 ```
 
-- **ReplacingMergeTree** engine, `loaded_at` version column
+- **Fact tablolar:** ReplacingMergeTree(loaded_at) engine, `loaded_at` version column
+- **Staging tablolar:** MergeTree engine (ReplacingMergeTree degil — background merge sirasinda dedup yaparak veri kaybina neden oluyordu)
 - Partition by `loan_type` (RETAIL / COMMERCIAL)
 - Yeni yukleme eskisinin tamamen yerine gecer (append degil)
 - Basarisiz sync'te eski veri korunur
@@ -376,19 +385,22 @@ check_and_sync()
     │   └─ Her tenant icin:
     │       └─ SyncConfiguration.objects.filter(is_enabled=True)
     │           └─ Her config icin:
+    │               ├─ Lock kontrolu: sync_lock:{tenant}:{loan_type} bos mu?
     │               ├─ get_row_count(tenant, loan_type, 'credit')
     │               └─ get_row_count(tenant, loan_type, 'payment_plan')
-    │                   └─ Veri varsa → run_sync.delay(tenant_id, loan_type)
+    │                   └─ Lock bos + veri varsa → run_sync.delay(tenant_id, loan_type)
     │
     ▼
 run_sync(tenant_id, loan_type)
     └─ SyncEngine(tenant_id, pg_schema, ch_database, url)
         └─ engine.sync(loan_type)
+            └─ Redis distributed lock al → pipeline calistir → lock serbest birak
 ```
 
 - `get_row_count()` Redis'te O(1) islem (ayri counter key)
 - Kor sync yok: sadece veri varsa tetiklenir
 - `run_sync` max 2 retry, 60s aralikla
+- Distributed lock ile ayni tenant/loan_type icin esanli sync onlenir
 
 ---
 
@@ -433,7 +445,7 @@ Tum endpoint'ler `Authorization: Api-Key sk_live_...` header'i gerektirir.
 |--------|-----------|
 | Framework | Django 5.x + DRF |
 | Operasyonel DB | PostgreSQL 16 (schema-based multi-tenancy) |
-| Data Warehouse | ClickHouse (ReplacingMergeTree) |
+| Data Warehouse | ClickHouse (fact: ReplacingMergeTree, staging: MergeTree) |
 | Cache / Queue / Stage | Redis 7 (3 DB) |
 | Task Queue | Celery 5.3 + Celery Beat |
 | Web Server | Gunicorn |

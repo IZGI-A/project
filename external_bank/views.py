@@ -11,7 +11,7 @@ from adapter.metrics import data_upload_bytes_total
 
 
 class CSVUploadView(APIView):
-    """Upload CSV file to the simulated bank storage."""
+    """Upload CSV file to the simulated bank storage (streaming, memory efficient)."""
     parser_classes = [MultiPartParser]
 
     def post(self, request):
@@ -38,21 +38,16 @@ class CSVUploadView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        records = []
-        chunk_size = 10000
-        text_wrapper = io.TextIOWrapper(csv_file, encoding='utf-8')
-        reader = csv.DictReader(text_wrapper, delimiter=';')
+        def _csv_row_iter():
+            """Streaming CSV row iterator — never loads entire file into memory."""
+            text_wrapper = io.TextIOWrapper(csv_file, encoding='utf-8')
+            reader = csv.DictReader(text_wrapper, delimiter=';')
+            for row in reader:
+                yield dict(row)
 
-        chunk = []
-        for row in reader:
-            chunk.append(dict(row))
-            if len(chunk) >= chunk_size:
-                records.extend(chunk)
-                chunk = []
-        if chunk:
-            records.extend(chunk)
-
-        storage.store_data(tenant_id, loan_type, file_type, records)
+        total_rows = storage.store_data_streaming(
+            tenant_id, loan_type, file_type, _csv_row_iter()
+        )
         data_upload_bytes_total.labels(tenant=tenant_id).inc(csv_file.size)
 
         return Response({
@@ -60,7 +55,7 @@ class CSVUploadView(APIView):
             'tenant_id': tenant_id,
             'loan_type': loan_type,
             'file_type': file_type,
-            'rows': len(records),
+            'rows': total_rows,
         }, status=status.HTTP_201_CREATED)
 
 
@@ -80,13 +75,15 @@ class DataUpdateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        records = []
-        text_wrapper = io.TextIOWrapper(csv_file, encoding='utf-8')
-        reader = csv.DictReader(text_wrapper, delimiter=';')
-        for row in reader:
-            records.append(dict(row))
+        def _csv_row_iter():
+            text_wrapper = io.TextIOWrapper(csv_file, encoding='utf-8')
+            reader = csv.DictReader(text_wrapper, delimiter=';')
+            for row in reader:
+                yield dict(row)
 
-        storage.store_data(tenant_id, loan_type, file_type, records)
+        total_rows = storage.store_data_streaming(
+            tenant_id, loan_type, file_type, _csv_row_iter()
+        )
         data_upload_bytes_total.labels(tenant=tenant_id).inc(csv_file.size)
 
         return Response({
@@ -94,7 +91,7 @@ class DataUpdateView(APIView):
             'tenant_id': tenant_id,
             'loan_type': loan_type,
             'file_type': file_type,
-            'rows': len(records),
+            'rows': total_rows,
         })
 
 

@@ -6,7 +6,7 @@
 
 <div class="row g-3">
     <!-- Log selector -->
-    <div class="col-md-4">
+    <div class="col-lg-4 col-12">
         <div class="glass-card">
             <div class="card-header px-3 py-2">
                 <h6 class="mb-0" style="font-weight: 600;"><i class="bi bi-list-ul me-1" style="color: var(--accent-amber);"></i> Sync Logs with Errors</h6>
@@ -31,11 +31,11 @@
     </div>
 
     <!-- Error details -->
-    <div class="col-md-8">
+    <div class="col-lg-8 col-12">
         {% if sync_log %}
         <div class="glass-card mb-3">
             <div class="card-body py-2 px-3">
-                <div class="d-flex align-items-center gap-2">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
                     <h6 class="mb-0" style="font-weight: 600;">Sync {{ sync_log.id|truncatechars:12 }}</h6>
                     <span class="badge badge-glass">{{ sync_log.loan_type }}</span>
                     <span class="badge badge-danger-glass">{{ sync_log.error_count }} errors</span>

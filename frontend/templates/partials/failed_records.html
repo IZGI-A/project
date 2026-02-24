@@ -1,4 +1,5 @@
 {% if failed_records %}
+<div class="table-responsive">
 <table class="table table-glass table-hover">
     <thead>
         <tr><th>Loan Type</th><th>File Type</th><th>Failed Rows</th><th>Actions</th></tr>
@@ -10,7 +11,7 @@
         <td class="text-secondary">{{ fr.file_type }}</td>
         <td><span class="badge badge-danger-glass">{{ fr.count }}</span></td>
         <td>
-            <div class="d-flex gap-1">
+            <div class="d-flex gap-1 flex-wrap">
                 <button class="btn btn-glass btn-sm"
                         hx-get="{% url 'frontend:failed-preview' %}?loan_type={{ fr.loan_type }}&file_type={{ fr.file_type }}"
                         hx-target="#preview-modal-body"
@@ -19,12 +20,12 @@
                         data-bs-target="#previewModal"
                         title="Preview failed records"
                         style="font-size: 0.78rem;">
-                    <i class="bi bi-eye"></i> Preview
+                    <i class="bi bi-eye"></i><span class="d-none d-md-inline"> Preview</span>
                 </button>
                 <a href="{% url 'frontend:failed-download' %}?loan_type={{ fr.loan_type }}&file_type={{ fr.file_type }}"
                    class="btn btn-glass btn-sm" title="Download CSV"
                    style="font-size: 0.78rem; color: var(--accent-cyan);">
-                    <i class="bi bi-download"></i> Download
+                    <i class="bi bi-download"></i><span class="d-none d-md-inline"> Download</span>
                 </a>
                 <button class="btn btn-glass btn-sm"
                         hx-post="{% url 'frontend:failed-dismiss' %}"
@@ -35,7 +36,7 @@
                         hx-confirm="{{ fr.count }} failed record(s) will be permanently deleted. Continue?"
                         title="Permanently delete failed records"
                         style="font-size: 0.78rem; color: var(--accent-red);">
-                    <i class="bi bi-trash"></i> Dismiss
+                    <i class="bi bi-trash"></i><span class="d-none d-md-inline"> Dismiss</span>
                 </button>
             </div>
         </td>
@@ -43,6 +44,7 @@
     {% endfor %}
     </tbody>
 </table>
+</div>
 {% else %}
 <p class="text-secondary text-center mb-0 py-3">No failed records</p>
 {% endif %}

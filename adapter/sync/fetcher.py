@@ -15,7 +15,8 @@ class DataFetcher:
 
     def fetch(self, loan_type: str, file_type: str) -> list:
         """
-        Fetch data from external bank.
+        Fetch data from external bank via direct Redis storage read.
+        Memory efficient for large datasets — reads chunk by chunk.
 
         Args:
             loan_type: RETAIL or COMMERCIAL
@@ -24,26 +25,39 @@ class DataFetcher:
         Returns:
             List of record dicts
         """
-        url = f"{self.base_url}/data/"
-        params = {
-            'tenant_id': self.tenant_id,
-            'loan_type': loan_type,
-            'file_type': file_type,
-        }
+        from external_bank import storage
 
-        try:
-            response = requests.get(url, params=params, timeout=120)
-            response.raise_for_status()
-            data = response.json()
-            records = data.get('data', [])
-            logger.info(
-                "Fetched %d %s records for %s/%s",
-                len(records), file_type, self.tenant_id, loan_type,
-            )
-            return records
-        except requests.RequestException as e:
-            logger.error(
-                "Failed to fetch %s data for %s/%s: %s",
-                file_type, self.tenant_id, loan_type, e,
-            )
-            raise
+        records = []
+        for chunk in storage.get_data_iter(self.tenant_id, loan_type, file_type):
+            records.extend(chunk)
+
+        logger.info(
+            "Fetched %d %s records for %s/%s",
+            len(records), file_type, self.tenant_id, loan_type,
+        )
+        return records
+
+    def fetch_iter(self, loan_type: str, file_type: str):
+        """
+        Generator that yields chunks of records from storage.
+        Truly memory efficient — only one chunk in memory at a time.
+
+        Yields:
+            Lists of record dicts (each list is one chunk)
+        """
+        from external_bank import storage
+
+        total = 0
+        for chunk in storage.get_data_iter(self.tenant_id, loan_type, file_type):
+            total += len(chunk)
+            yield chunk
+
+        logger.info(
+            "Fetched %d %s records (streaming) for %s/%s",
+            total, file_type, self.tenant_id, loan_type,
+        )
+
+    def fetch_row_count(self, loan_type: str, file_type: str) -> int:
+        """O(1) row count check without loading data."""
+        from external_bank import storage
+        return storage.get_row_count(self.tenant_id, loan_type, file_type)

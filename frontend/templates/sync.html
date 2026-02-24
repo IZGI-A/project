@@ -1,6 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Sync - {{ tenant_name }}{% endblock %}
 
+{% block extra_css %}
+<style>
+    @media (max-width: 767.98px) {
+        .sync-config-url { max-width: 80px !important; font-size: 0.75rem !important; }
+        .sync-trigger-btn { font-size: 0.82rem; padding: 0.4rem 0.5rem; }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <h4 class="page-title mb-4 text-glow">Sync Management</h4>
 
@@ -12,24 +21,24 @@
                 <h6 class="mb-0" style="font-weight: 600;"><i class="bi bi-play-circle me-1" style="color: var(--accent-green);"></i> Trigger Sync</h6>
             </div>
             <div class="card-body">
-                <div class="d-flex gap-2">
-                    <button class="btn btn-glass flex-fill"
+                <div class="d-flex gap-2 flex-wrap">
+                    <button class="btn btn-glass flex-fill sync-trigger-btn"
                             hx-post="{% url 'frontend:sync-trigger' %}"
                             hx-vals='{"loan_type": "RETAIL"}'
                             hx-target="#sync-logs"
                             hx-swap="innerHTML"
                             hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
                             style="border-color: rgba(124,58,237,0.3);">
-                        <i class="bi bi-play-fill" style="color: var(--accent-purple);"></i> Sync RETAIL
+                        <i class="bi bi-play-fill" style="color: var(--accent-purple);"></i> <span class="d-none d-sm-inline">Sync </span>RETAIL
                     </button>
-                    <button class="btn btn-glass flex-fill"
+                    <button class="btn btn-glass flex-fill sync-trigger-btn"
                             hx-post="{% url 'frontend:sync-trigger' %}"
                             hx-vals='{"loan_type": "COMMERCIAL"}'
                             hx-target="#sync-logs"
                             hx-swap="innerHTML"
                             hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
                             style="border-color: rgba(16,185,129,0.3);">
-                        <i class="bi bi-play-fill" style="color: var(--accent-green);"></i> Sync COMMERCIAL
+                        <i class="bi bi-play-fill" style="color: var(--accent-green);"></i> <span class="d-none d-sm-inline">Sync </span>COMMERCIAL
                     </button>
                 </div>
             </div>
@@ -42,13 +51,14 @@
                 <h6 class="mb-0" style="font-weight: 600;"><i class="bi bi-gear me-1" style="color: var(--accent-cyan);"></i> Configurations</h6>
             </div>
             <div class="card-body p-0">
+                <div class="table-responsive">
                 <table class="table table-glass table-hover">
                     <thead><tr><th>Loan Type</th><th>URL</th><th>Interval</th><th>Status</th></tr></thead>
                     <tbody>
                     {% for c in configs %}
                     <tr>
                         <td><span class="badge badge-glass">{{ c.loan_type }}</span></td>
-                        <td class="text-truncate text-secondary" style="max-width: 200px; font-size: 0.82rem;">{{ c.external_bank_url }}</td>
+                        <td class="text-truncate text-secondary sync-config-url" style="max-width: 120px; font-size: 0.82rem;">{{ c.external_bank_url }}</td>
                         <td>{{ c.sync_interval_minutes }}m</td>
                         <td>
                             <span class="badge {% if c.last_sync_status == 'COMPLETED' %}badge-success-glass{% elif c.last_sync_status == 'FAILED' %}badge-danger-glass{% else %}badge-secondary-glass{% endif %}">
@@ -61,6 +71,7 @@
                     {% endfor %}
                     </tbody>
                 </table>
+                </div>
             </div>
         </div>
     </div>
@@ -88,7 +99,7 @@
 
 <!-- Preview Modal (outside glass-card to avoid backdrop-filter stacking context issues) -->
 <div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-dialog modal-xl modal-fullscreen-md-down modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header py-2">
                 <h6 class="modal-title" style="font-weight: 600;">Failed Records Preview</h6>
