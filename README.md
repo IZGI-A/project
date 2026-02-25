@@ -391,6 +391,119 @@ project/
 └── Dockerfile              # Django app + Celery
 ```
 
+## Testler
+
+> Not: Testler Docker container icinde calistirilir. Redis ve ClickHouse baglantisi gerektirir.
+
+### Unit Testler (pytest)
+
+Validator, normalizer ve storage katmanlarini test eder. ClickHouse'a erismez, Redis gerektirir.
+
+```bash
+# Tum unit testleri calistir
+docker compose exec web pytest
+
+# Detayli cikti
+docker compose exec web pytest -v
+
+# Tek bir test dosyasi calistir
+docker compose exec web pytest tests/test_validators.py
+docker compose exec web pytest tests/test_storage.py
+docker compose exec web pytest tests/test_cross_validator.py
+
+# Sadece belirli bir test sinifi
+docker compose exec web pytest tests/test_validators.py::TestCreditFieldValidator
+
+# Sadece belirli bir test
+docker compose exec web pytest tests/test_validators.py::TestRateNormalizer::test_percentage_rate_divided
+```
+
+**Test dosyalari:**
+
+| Dosya | Kapsam | Test Sayisi |
+|-------|--------|-------------|
+| `tests/test_validators.py` | Kredi/odeme alan dogrulamasi, tarih/oran/kategori normalizasyonu | 21 |
+| `tests/test_storage.py` | Redis gzip storage, tenant izolasyonu, replace semantigi | 8 |
+| `tests/test_cross_validator.py` | Odeme → kredi referans butunlugu, ClickHouse union | 4 |
+
+**Test senaryolari (spec'ten):**
+
+- Zorunlu alan eksik → hata
+- Gecersiz musteri tipi (X) → VALUE hatasi
+- Negatif tutar → RANGE hatasi
+- Gecersiz tarih formati → FORMAT hatasi
+- BANK001 verisi yuklendi → BANK002 goremez (tenant izolasyonu)
+- 100 kayit yukle, 200 kayit yukle → Redis'te 200 olmali (replace semantigi)
+- Odeme kaydi var olmayan krediye referans → CROSS_REFERENCE hatasi
+- ClickHouse'taki mevcut kredi + batch'teki kredi birlikte kontrol
+
+### Stres Testi (200MB+)
+
+Buyuk veri dosyalariyla tum ETL pipeline'ini test eder. `data-test/large-data/` dizininde buyuk CSV dosyalari gerektirir.
+
+```bash
+# 200MB+ stres testi (upload → sync → ClickHouse verify)
+docker compose exec web python /app/tests/test_large_upload.py
+```
+
+Bu test su adimlari calistirir:
+1. CSV dosyalarini streaming upload ile Redis'e yukler
+2. SyncEngine.sync() ile tum pipeline'i calistirir (validate → normalize → ClickHouse)
+3. ClickHouse'da dogru satir sayisini dogrular
+4. Memory kullanimi ve sure olcumu yapar
+
+Beklenen cikti:
+```
+LARGE FILE STRESS TEST (200MB+)
+  retail_credit_large.csv: 183.5 MB
+  retail_payment_plan_large.csv: 22.1 MB
+
+UPLOADING: retail_credit_large.csv
+  Rows stored: 1,394,000
+  Time: 47.3s
+
+RUNNING SYNC: BANK001 / RETAIL
+  Status: COMPLETED
+  Credit rows: 1,394,000/1,394,000
+  Payment rows: 2,607,535/2,607,535
+
+VERIFYING CLICKHOUSE: bank001_dw
+  fact_credit (RETAIL):  1,394,000 rows
+  fact_payment (RETAIL): 2,607,535 rows
+
+  RESULT: PASSED
+```
+
+### Veritabanini Test Icin Sifirla
+
+```bash
+docker compose exec web python manage.py shell -c "
+from adapter.clickhouse_manager import get_clickhouse_client
+from adapter.models import SyncLog, ValidationError, Tenant
+from config.db_router import set_current_tenant_schema, clear_current_tenant_schema
+import redis
+
+# ClickHouse
+for db in ['bank001_dw', 'bank002_dw', 'bank003_dw']:
+    client = get_clickhouse_client(database=db)
+    for t in ['fact_credit','fact_payment','staging_credit','staging_payment']:
+        client.command(f'TRUNCATE TABLE {t}')
+
+# PostgreSQL
+for t in Tenant.objects.all():
+    set_current_tenant_schema(t.pg_schema)
+    ValidationError.objects.all().delete()
+    SyncLog.objects.all().delete()
+    clear_current_tenant_schema()
+
+# Redis (tum DB'ler)
+for db in [0, 1, 2]:
+    redis.Redis(host='redis', port=6379, db=db).flushdb()
+
+print('Tum veritabanlari sifirlandi.')
+"
+```
+
 ## Docker Hub
 
 Image Docker Hub'da mevcut:
