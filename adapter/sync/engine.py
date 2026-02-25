@@ -144,6 +144,7 @@ class SyncEngine:
             credit_error_summary = {}
             valid_loan_ids = set()  # Only store IDs, not full records
             all_credit_errors = []
+            failed_credit_rows = []  # Raw rows that failed validation
             global_row_idx = 0
 
             self._update_status(sync_log, 'VALIDATING')
@@ -161,6 +162,8 @@ class SyncEngine:
                             valid_loan_ids.add(loan_id)
                     else:
                         credit_error_count += 1
+                        if len(failed_credit_rows) < 10000:
+                            failed_credit_rows.append(row)
                         for err in vr.errors:
                             err_type = err.get('error_type', 'UNKNOWN')
                             credit_error_summary[err_type] = credit_error_summary.get(err_type, 0) + 1
@@ -207,6 +210,7 @@ class SyncEngine:
             payment_error_count = 0
             payment_error_summary = {}
             all_payment_errors = []
+            failed_payment_rows = []  # Raw rows that failed validation
             global_row_idx = 0
 
             for chunk in self.fetcher.fetch_iter(loan_type, 'payment_plan'):
@@ -217,6 +221,8 @@ class SyncEngine:
                     vr = self.payment_validator.validate_row(row, global_row_idx, loan_type)
                     if not vr.is_valid:
                         payment_error_count += 1
+                        if len(failed_payment_rows) < 10000:
+                            failed_payment_rows.append(row)
                         for err in vr.errors:
                             err_type = err.get('error_type', 'UNKNOWN')
                             payment_error_summary[err_type] = payment_error_summary.get(err_type, 0) + 1
@@ -228,6 +234,8 @@ class SyncEngine:
                     loan_id = row.get('loan_account_number', '')
                     if loan_id not in all_valid_loans:
                         payment_error_count += 1
+                        if len(failed_payment_rows) < 10000:
+                            failed_payment_rows.append(row)
                         err = {
                             'row_number': global_row_idx,
                             'field_name': 'loan_account_number',
@@ -289,6 +297,7 @@ class SyncEngine:
 
                 self._save_errors_batched(sync_log, all_credit_errors, 'credit')
                 self._save_errors_batched(sync_log, all_payment_errors, 'payment_plan')
+                self._store_failed_rows(loan_type, failed_credit_rows, failed_payment_rows)
                 self._update_sync_config(loan_type, 'FAILED')
                 self._cleanup_redis(loan_type)
 
@@ -339,6 +348,7 @@ class SyncEngine:
 
             self._save_errors_batched(sync_log, all_credit_errors, 'credit')
             self._save_errors_batched(sync_log, all_payment_errors, 'payment_plan')
+            self._store_failed_rows(loan_type, failed_credit_rows, failed_payment_rows)
 
             sync_operations_total.labels(
                 tenant=self.tenant_id, loan_type=loan_type, status='COMPLETED',
@@ -415,6 +425,18 @@ class SyncEngine:
                 batch = []
         if batch:
             VE.objects.bulk_create(batch, batch_size=ERROR_SAVE_BATCH)
+
+    def _store_failed_rows(self, loan_type, failed_credit_rows, failed_payment_rows):
+        """Store failed raw rows in Redis so users can preview/download them."""
+        from external_bank import storage
+        if failed_credit_rows:
+            storage.store_failed(self.tenant_id, loan_type, 'credit', failed_credit_rows)
+            logger.info("Stored %d failed credit rows for %s/%s",
+                        len(failed_credit_rows), self.tenant_id, loan_type)
+        if failed_payment_rows:
+            storage.store_failed(self.tenant_id, loan_type, 'payment_plan', failed_payment_rows)
+            logger.info("Stored %d failed payment rows for %s/%s",
+                        len(failed_payment_rows), self.tenant_id, loan_type)
 
     def _cleanup_redis(self, loan_type):
         """Clear upload data from Redis after sync."""
